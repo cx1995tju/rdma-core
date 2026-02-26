@@ -56,6 +56,7 @@ static int run(void)
 	memset(&hints, 0, sizeof hints);
 	hints.ai_flags = RAI_PASSIVE;
 	hints.ai_port_space = RDMA_PS_TCP;
+	// 关键就是去内核将 server, port, hints 转换为标准的地址结构 res, 供后续使用
 	ret = rdma_getaddrinfo(server, port, &hints, &res);
 	if (ret) {
 		printf("rdma_getaddrinfo: %s\n", gai_strerror(ret));
@@ -67,18 +68,22 @@ static int run(void)
 	init_attr.cap.max_send_sge = init_attr.cap.max_recv_sge = 1;
 	init_attr.cap.max_inline_data = 16;
 	init_attr.sq_sig_all = 1;
+
+	// 类似 socket 创建
 	ret = rdma_create_ep(&listen_id, res, NULL, &init_attr);
 	if (ret) {
 		perror("rdma_create_ep");
 		goto out_free_addrinfo;
 	}
 
+	// listen on id
 	ret = rdma_listen(listen_id, 0);
 	if (ret) {
 		perror("rdma_listen");
 		goto out_destroy_listen_ep;
 	}
 
+	// 类似 accept, 通过 listen_id 拿到一个新 id
 	ret = rdma_get_request(listen_id, &id);
 	if (ret) {
 		perror("rdma_get_request");
@@ -99,6 +104,7 @@ static int run(void)
 		printf("rdma_server: device doesn't support IBV_SEND_INLINE, "
 		       "using sge sends\n");
 
+	// 准备 mr
 	mr = rdma_reg_msgs(id, recv_msg, 16);
 	if (!mr) {
 		ret = -1;
@@ -114,30 +120,35 @@ static int run(void)
 		}
 	}
 
+	// 准备接收需要的 ctx
 	ret = rdma_post_recv(id, NULL, recv_msg, 16, mr);
 	if (ret) {
 		perror("rdma_post_recv");
 		goto out_dereg_send;
 	}
 
+	// 这里的 id 已经是新连接的 id 了
 	ret = rdma_accept(id, NULL);
 	if (ret) {
 		perror("rdma_accept");
 		goto out_dereg_send;
 	}
 
+	// polling rq 的 completion
 	while ((ret = rdma_get_recv_comp(id, &wc)) == 0);
 	if (ret < 0) {
 		perror("rdma_get_recv_comp");
 		goto out_disconnect;
 	}
 
+	// 发送
 	ret = rdma_post_send(id, NULL, send_msg, 16, send_mr, send_flags);
 	if (ret) {
 		perror("rdma_post_send");
 		goto out_disconnect;
 	}
 
+	// 等待发送完成
 	while ((ret = rdma_get_send_comp(id, &wc)) == 0);
 	if (ret < 0)
 		perror("rdma_get_send_comp");

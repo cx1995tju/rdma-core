@@ -682,6 +682,7 @@ LATEST_SYMVER_FUNC(ibv_query_qp, 1_1, "IBVERBS_1.1",
 {
 	int ret;
 
+	// 底下就是调用各个产商的库了, e.g. rxe_query_qp
 	ret = get_ops(qp->context)->query_qp(qp, attr, attr_mask, init_attr);
 	if (ret)
 		return ret;

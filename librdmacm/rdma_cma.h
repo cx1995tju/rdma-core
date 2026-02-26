@@ -121,7 +121,7 @@ struct rdma_event_channel {
 
 struct rdma_cm_id {
 	struct ibv_context	*verbs;
-	struct rdma_event_channel *channel;
+	struct rdma_event_channel *channel; // 和 内核通信的通道, ref: ucma_alloc_id() -> rdma_create_event_channel(), 每个单独的 id 都会 open rdma_cm 设备, 来创建和内核通信的通道的.
 	void			*context;
 	struct ibv_qp		*qp;
 	struct rdma_route	 route;
@@ -179,11 +179,13 @@ struct rdma_cm_event {
 #define RAI_NOROUTE		0x00000004
 #define RAI_FAMILY		0x00000008
 
+// rdma 的地址信息
+// ref: ucma_convert_to_rai() 可以猜测, 目前用户态 librdmacm 并不是所有的 qp_type 都支持的
 struct rdma_addrinfo {
 	int			ai_flags;
 	int			ai_family;
-	int			ai_qp_type;
-	int			ai_port_space;
+	int			ai_qp_type; // %IBV_QPT_RC
+	int			ai_port_space; // %RDMA_PS_TCP
 	socklen_t		ai_src_len;
 	socklen_t		ai_dst_len;
 	struct sockaddr		*ai_src_addr;

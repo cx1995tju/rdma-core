@@ -141,6 +141,12 @@ static int ucma_convert_in6(int ps, struct sockaddr_ib **dst, socklen_t *dst_len
 	return 0;
 }
 
+/* XXX: ref ucam_getaddrinfo, 如果是 RoCEv2 场景的话, 这里传入的 ai 就是 ip 地址 + port
+ * 此时这里的本质就是将 ip 地址信息转换为 rdma 地址信息.
+ *
+ * 我们需要特别关注这里, 理解 RoCEv2 场景下的地址转换逻辑.
+ *
+ * */
 static int ucma_convert_to_rai(struct rdma_addrinfo *rai,
 			       const struct rdma_addrinfo *hints,
 			       const struct addrinfo *ai)
@@ -173,9 +179,11 @@ static int ucma_convert_to_rai(struct rdma_addrinfo *rai,
 		}
 	}
 
-	if (ai->ai_flags & AI_PASSIVE) {
+	// 有 AI_PASSIVE 的时候, 说明返回的地址适合 server 端使用, 比如 bind 操
+	// 作. 其中的 ip 地址信息可能是通配地址 INADDR_ANY
+	if (ai->ai_flags & AI_PASSIVE) { // server 端
 		rai->ai_flags = RAI_PASSIVE;
-		if (ai->ai_canonname)
+		if (ai->ai_canonname) // 没啥好说的, 保存地址的 canonname
 			rai->ai_src_canonname = strdup(ai->ai_canonname);
 
 		if ((hints->ai_flags & RAI_FAMILY) && (hints->ai_family == AF_IB) &&
@@ -186,12 +194,12 @@ static int ucma_convert_to_rai(struct rdma_addrinfo *rai,
 					       &rai->ai_src_len,
 					       (struct sockaddr_in6 *) ai->ai_addr,
 					       ai->ai_addrlen);
-		} else {
-			rai->ai_family = ai->ai_family;
+		} else { // 一般走这里, server 端 copy src 地址, 服务端关心自己的地址
+			rai->ai_family = ai->ai_family; // RoCEv2 里 AF_INET/AF_INET6
 			ret = ucma_copy_addr(&rai->ai_src_addr, &rai->ai_src_len,
 					     ai->ai_addr, ai->ai_addrlen);
 		}
-	} else {
+	} else { // client 端
 		if (ai->ai_canonname)
 			rai->ai_dst_canonname = strdup(ai->ai_canonname);
 
@@ -203,7 +211,7 @@ static int ucma_convert_to_rai(struct rdma_addrinfo *rai,
 					       &rai->ai_dst_len,
 					       (struct sockaddr_in6 *) ai->ai_addr,
 					       ai->ai_addrlen);
-		} else {
+		} else { // client 端 copy dst 地址, client 端关心对方的地址
 			rai->ai_family = ai->ai_family;
 			ret = ucma_copy_addr(&rai->ai_dst_addr, &rai->ai_dst_len,
 					     ai->ai_addr, ai->ai_addrlen);
@@ -220,6 +228,8 @@ static int ucma_getaddrinfo(const char *node, const char *service,
 	struct addrinfo *ai;
 	int ret;
 
+	// HERE IT IS, 还是走到了标准的 getaddrinfo 了
+	// 如果是 RoCEv2 由于传入的 node 和 service 一般就是 IP 和端口号, 所以这里并没有什么特殊的
 	if (hints != &nohints) {
 		ucma_convert_to_ai(&ai_hints, hints);
 		ret = getaddrinfo(node, service, &ai_hints, &ai);
@@ -229,11 +239,27 @@ static int ucma_getaddrinfo(const char *node, const char *service,
 	if (ret)
 		return ret;
 
+	// 这里需要注意下, 如果是 RoCEv2, ai 里返回的地址类型一般是 AF_INET 或 AF_INET6 的, 这里要转换下
+	// 关注这里的转换逻辑
 	ret = ucma_convert_to_rai(rai, hints, ai);
 	freeaddrinfo(ai);
 	return ret;
 }
 
+/* 这个函数支持 IB 和 RoCE
+ * - IB 里:
+ *   - node 一般是一个设备名字, 比如: mlx5_0, 或者 GID, 或者为空, 表示本地;
+ *   - service 是一个数值字符串, 用来做多路分解的
+ *
+ * - RoCEv2 里, node 一般是 IP 或主机名, service 就是端口号, 也是做多路分解的.
+ *   但注意不会和 TCP/UDP 连接冲突的, 因为 RoCEv2 外层都是用 UDP port 4791. 这
+ *   里仅仅是用来多路分解 rdma 流量的.
+ *
+ * 提供 node, service, hints 等信息, 让内核将其解析为合法可用的 rdma_addrinfo 结构 res
+ *
+ *
+ * summary: 做一些地址转换, 最终还是调用到标准的 getaddrinfo 函数去解析地址信息.
+ * */
 int rdma_getaddrinfo(const char *node, const char *service,
 		     const struct rdma_addrinfo *hints,
 		     struct rdma_addrinfo **res)
@@ -241,9 +267,11 @@ int rdma_getaddrinfo(const char *node, const char *service,
 	struct rdma_addrinfo *rai;
 	int ret;
 
+	// 都为空, 显然不行.
 	if (!service && !node && !hints)
 		return ERR(EINVAL);
 
+	// 例行调用 ucma_init 函数
 	ret = ucma_init();
 	if (ret)
 		return ret;
@@ -256,6 +284,7 @@ int rdma_getaddrinfo(const char *node, const char *service,
 		hints = &nohints;
 
 	if (node || service) {
+		// 一般走这里, 让内核解析并将结果通过 rai 返回
 		ret = ucma_getaddrinfo(node, service, hints, rai);
 	} else {
 		rai->ai_flags = hints->ai_flags;

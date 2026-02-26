@@ -2281,6 +2281,7 @@ extern const struct verbs_device_ops verbs_provider_all;
 extern const struct verbs_device_ops verbs_provider_none;
 void ibv_static_providers(void *unused, ...);
 
+// ref: ibverbs_get_device_list()
 static inline struct ibv_device **__ibv_get_device_list(int *num_devices)
 {
 	ibv_static_providers(NULL, _RDMA_STATIC_PREFIX(RDMA_STATIC_PROVIDERS),
@@ -3242,6 +3243,8 @@ int ibv_query_qp_data_in_order(struct ibv_qp *qp, enum ibv_wr_opcode op,
  *
  * The qp_attr_mask may be used to limit the query to gathering only the
  * selected attributes.
+ *
+ * ref: libibverbs/verbs.c
  */
 int ibv_query_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr,
 		 int attr_mask,

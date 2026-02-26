@@ -105,12 +105,12 @@ struct cma_id_private {
 	size_t			connect_len;
 	int			events_completed;
 	int			connect_error;
-	int			sync;
+	int			sync; // 同步模式, userspace 要主动 polling 内核事件, 适用于多线程或者需要精确控制事件分发的场景.
 	pthread_cond_t		cond;
 	pthread_mutex_t		mut;
-	uint32_t		handle;
+	uint32_t		handle; // ref: rdma_create_id2(), 这里会保存内核返回的一个 id
 	struct cma_multicast	*mc_list;
-	struct ibv_qp_init_attr	*qp_init_attr;
+	struct ibv_qp_init_attr	*qp_init_attr; // 一般 server 端的 id 会有这个结构, 因为 server 端有新连接的时候, 会为新连接创建 QP, 需要这些信息.
 	uint8_t			initiator_depth;
 	uint8_t			responder_resources;
 	struct ibv_ece		local_ece;
@@ -379,6 +379,7 @@ out:
 	return 0;
 }
 
+// librdmacm 的 init 函数, 不过不需要用户显式调用, 而是在很多接口里都会尝试例行调用的.
 int ucma_init(void)
 {
 	int ret;
@@ -387,6 +388,8 @@ int ucma_init(void)
 	 * ucma_set_af_ib_support() below recursively calls to this function
 	 * again under the &mut lock, so do this fast check and return
 	 * immediately.
+	 *
+	 * sync_devices_list() 里同步后, 这个 dev_list 就不是空了
 	 */
 	if (!list_empty(&cma_dev_list))
 		return 0;
@@ -404,10 +407,12 @@ int ucma_init(void)
 		goto err1;
 	}
 
+	// XXX
 	ret = sync_devices_list();
 	if (ret)
 		goto err1;
 
+	// ref: linux cma.c:ucma_bind()
 	ucma_set_af_ib_support();
 	pthread_mutex_unlock(&mut);
 	return 0;
@@ -575,6 +580,7 @@ struct rdma_event_channel *rdma_create_event_channel(void)
 	if (!channel)
 		return NULL;
 
+	// open 得到的 fd 默认是 block 模式
 	channel->fd = open_cdev(dev_name, dev_cdev);
 	if (channel->fd < 0) {
 		goto err;
@@ -641,6 +647,7 @@ static int ucma_get_device(struct cma_id_private *id_priv, __be64 guid,
 
 	id_priv->cma_dev = cma_dev;
 	id_priv->id.verbs = cma_dev->verbs;
+	// 这里为 id 赋予了 pd
 	id_priv->id.pd = cma_dev->pd;
 out:
 	if (ret)
@@ -731,7 +738,7 @@ static struct cma_id_private *ucma_alloc_id(struct rdma_event_channel *channel,
 	id_priv->id.qp_type = qp_type;
 	id_priv->handle = 0xFFFFFFFF;
 
-	if (!channel) {
+	if (!channel) { // HERE
 		id_priv->id.channel = rdma_create_event_channel();
 		if (!id_priv->id.channel)
 			goto err;
@@ -759,10 +766,12 @@ static int rdma_create_id2(struct rdma_event_channel *channel,
 	struct cma_id_private *id_priv;
 	int ret;
 
+	// 例行初始化
 	ret = ucma_init();
 	if (ret)
 		return ret;
 
+	// 分配用户态的 id 结构
 	id_priv = ucma_alloc_id(channel, context, ps, qp_type);
 	if (!id_priv)
 		return ERR(ENOMEM);
@@ -857,6 +866,7 @@ int ucma_addrlen(struct sockaddr *addr)
 	}
 }
 
+// query 函数不仅仅 query 还为 id 分配了一些信息
 static int ucma_query_addr(struct rdma_cm_id *id)
 {
 	struct ucma_abi_query_addr_resp resp;
@@ -990,6 +1000,7 @@ static int ucma_query_path(struct rdma_cm_id *id)
 	return 0;
 }
 
+// query 函数不仅仅 query 还为 id 分配了一些信息
 static int ucma_query_route(struct rdma_cm_id *id)
 {
 	struct ucma_abi_query_route_resp resp;
@@ -1035,6 +1046,7 @@ static int ucma_query_route(struct rdma_cm_id *id)
 	memcpy(&id->route.addr.dst_addr, &resp.dst_addr,
 	       sizeof resp.dst_addr);
 
+	// 多个 query 函数都调用了这段逻辑
 	if (!id_priv->cma_dev && resp.node_guid) {
 		ret = ucma_get_device(id_priv, resp.node_guid,
 				      resp.ibdev_index);
@@ -1210,6 +1222,7 @@ static int ucma_set_ib_route(struct rdma_cm_id *id)
 	return ret;
 }
 
+// 简单调用内核接口, 让其解析一些路由信息, 并缓存到 id 里, 供后续使用
 int rdma_resolve_route(struct rdma_cm_id *id, int timeout_ms)
 {
 	struct ucma_abi_resolve_route cmd;
@@ -1836,8 +1849,10 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 	if (ret != sizeof cmd)
 		return (ret >= 0) ? ERR(ENODATA) : -1;
 
+	// rdma 控制面和数据面的天然分离, 所以 user 必须主动去 kernel 拿一些信
+	// 息保存到 id 结构里, 供后续数据面使用.
 	if (af_ib_support)
-		return ucma_query_addr(id);
+		return ucma_query_addr(id); // 这里的 query 很重要, pd 就是在 query 里赋予的.
 	else
 		return ucma_query_route(id);
 }
@@ -1876,10 +1891,11 @@ int rdma_get_request(struct rdma_cm_id *listen, struct rdma_cm_id **id)
 		goto err;
 	}
 
-	if (id_priv->qp_init_attr) {
+	if (id_priv->qp_init_attr) { // server 端有这个的
 		struct ibv_qp_init_attr attr;
 
 		attr = *id_priv->qp_init_attr;
+		// 创建了 qp
 		ret = rdma_create_qp(event->id, listen->pd, &attr);
 		if (ret)
 			goto err;
@@ -1902,7 +1918,12 @@ static void ucma_copy_ece_param_to_kern_rep(struct cma_id_private *id_priv,
 	dst->attr_mod = id_priv->local_ece.options;
 }
 
-int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
+// 这里的 accept 和 socket accept 语义非常不同, 和 socket accept 语义类似的其实是 rdma_get_request()
+//
+// 这里的本质是触发内核 rdma 连接建立的第三个报文, 与 tcp 不同的是, 连接建立的
+// 报文全部是内核处理的. 在 rdma 中连接建立过程需要的有些信息需要用户态提供, 比如: QPN.
+// 所以需要用户态主动调用. 类似的还有一个: rdma_reject() 接口
+int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param) 
 {
 	uint32_t qp_num = id->qp ? id->qp->qp_num : conn_param->qp_num;
 	uint8_t srq = id->qp ? !!id->qp->srq : conn_param->srq;
@@ -1987,6 +2008,7 @@ static int reject_with_reason(struct rdma_cm_id *id, const void *private_data,
 	return 0;
 }
 
+// ref: rdma_accept()
 int rdma_reject(struct rdma_cm_id *id, const void *private_data,
 		uint8_t private_data_len)
 {
@@ -2307,6 +2329,7 @@ static int ucma_process_conn_req(struct cma_event *evt, uint32_t handle,
 	struct cma_id_private *id_priv;
 	int ret;
 
+	// userspace 为新的连接, 分配 id 相关结构
 	id_priv = ucma_alloc_id(evt->id_priv->id.channel,
 				evt->id_priv->id.context, evt->id_priv->id.ps,
 				evt->id_priv->id.qp_type);
@@ -2316,16 +2339,18 @@ static int ucma_process_conn_req(struct cma_event *evt, uint32_t handle,
 		goto err1;
 	}
 
-	evt->event.listen_id = &evt->id_priv->id;
-	evt->event.id = &id_priv->id;
-	id_priv->handle = handle;
+	evt->event.listen_id = &evt->id_priv->id; // 这里是listen id
+	evt->event.id = &id_priv->id; // 这里 evt->event.id 设置为了新 id
+	id_priv->handle = handle; // 这个 handle 是内核返回的内核里使用的 新 id
 	ucma_insert_id(id_priv);
 	id_priv->initiator_depth = evt->event.param.conn.initiator_depth;
 	id_priv->responder_resources = evt->event.param.conn.responder_resources;
 	id_priv->remote_ece.vendor_id = ece->vendor_id;
 	id_priv->remote_ece.options = ece->attr_mod;
 
-	if (evt->id_priv->sync) {
+	// ???
+	if (evt->id_priv->sync) { // 默认应该走这条路径吧. 一个 id (socket) 和一个新的 fd 绑定, 当然更自然了.
+		// 为了更精确的控制 id 上的事件, 将这个新分配的 id 和一个新的 file 绑定.
 		ret = rdma_migrate_id(&id_priv->id, NULL);
 		if (ret)
 			goto err2;
@@ -2482,6 +2507,8 @@ int rdma_establish(struct rdma_cm_id *id)
 						   id));
 }
 
+// 获取内核的执行结果
+// 和 socket 接口不太一样, 很多内核接口的执行结果, 需要用户态调用这个函数从内核去重新拿
 int rdma_get_cm_event(struct rdma_event_channel *channel,
 		      struct rdma_cm_event **event)
 {
@@ -2504,6 +2531,7 @@ int rdma_get_cm_event(struct rdma_event_channel *channel,
 retry:
 	memset(evt, 0, sizeof(*evt));
 	CMA_INIT_CMD_RESP(&cmd, sizeof cmd, GET_EVENT, &resp, sizeof resp);
+	// 这个 write 默认会 block 住的, ref: rdma_create_event_channel, linux: ucma_get_event
 	ret = write(channel->fd, &cmd, sizeof cmd);
 	if (ret != sizeof cmd) {
 		free(evt);
@@ -2552,6 +2580,7 @@ retry:
 		else
 			ucma_copy_conn_event(evt, &resp.param.conn);
 
+		// process_conn_req 结束后, evt->event.id 会被更新为新分配的 id
 		ret = ucma_process_conn_req(evt, resp.id, &resp.ece);
 		if (ret)
 			goto retry;
@@ -2701,7 +2730,7 @@ int rdma_migrate_id(struct rdma_cm_id *id, struct rdma_event_channel *channel)
 		return ERR(EINVAL);
 
 	if ((sync = (channel == NULL))) {
-		channel = rdma_create_event_channel();
+		channel = rdma_create_event_channel(); // 搞一个新的 channel.fd 出来, 然后将 id 绑定到这个新的 fd 上
 		if (!channel)
 			return -1;
 	}
@@ -2750,7 +2779,7 @@ static int ucma_passive_ep(struct rdma_cm_id *id, struct rdma_addrinfo *res,
 	struct cma_id_private *id_priv;
 	int ret;
 
-	if (af_ib_support)
+	if (af_ib_support) // 走这里
 		ret = rdma_bind_addr2(id, res->ai_src_addr, res->ai_src_len);
 	else
 		ret = rdma_bind_addr(id, res->ai_src_addr);
@@ -2762,6 +2791,7 @@ static int ucma_passive_ep(struct rdma_cm_id *id, struct rdma_addrinfo *res,
 		id->pd = pd;
 
 	if (qp_init_attr) {
+		// server 端需要提供 qp 的一些基本信息, 后续有新连接建立的时候, 创建新 qp 需要
 		id_priv->qp_init_attr = malloc(sizeof(*qp_init_attr));
 		if (!id_priv->qp_init_attr)
 			return ERR(ENOMEM);
@@ -2773,6 +2803,13 @@ static int ucma_passive_ep(struct rdma_cm_id *id, struct rdma_addrinfo *res,
 	return 0;
 }
 
+// 类似于 socket 创建, bind 地址, 解析地址等
+//
+// 1. 创建 id 结构 (用户态, 内核态)
+// 2. 调用一些 resove, set_option 函数, 让内核去底层收集一些信息, 保存到内核态的 id 结构中
+// 3. 然后就创建 qp 了(还是在这个 id 的 ctx 下)
+//
+// 这里 pd 可以是 NULL, 如果是的话会使用 default pd
 int rdma_create_ep(struct rdma_cm_id **id, struct rdma_addrinfo *res,
 		   struct ibv_pd *pd, struct ibv_qp_init_attr *qp_init_attr)
 {
@@ -2785,6 +2822,7 @@ int rdma_create_ep(struct rdma_cm_id **id, struct rdma_addrinfo *res,
 		return ret;
 
 	if (res->ai_flags & RAI_PASSIVE) {
+		// 如果是 server 端, 需要 bind
 		ret = ucma_passive_ep(cm_id, res, pd, qp_init_attr);
 		if (ret)
 			goto err;

@@ -548,6 +548,9 @@ static void try_all_drivers(struct list_head *sysfs_list,
 	}
 }
 
+// 扫描系统中的 ib 设备, 通过两种方式扫描
+// - netlink
+// - sysfs 文件系统
 int ibverbs_get_device_list(struct list_head *device_list)
 {
 	LIST_HEAD(sysfs_list);
