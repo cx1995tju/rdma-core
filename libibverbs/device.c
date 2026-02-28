@@ -157,6 +157,8 @@ int ibv_get_device_index(struct ibv_device *device)
 	return sysfs_dev ? sysfs_dev->ibdev_idx : -1;
 }
 
+// 如果支持异步通知 userspace completion, 目前好像就 mlx5 支持. 其他网卡还是走
+// 传统的 polling 机制咯
 void verbs_init_cq(struct ibv_cq *cq, struct ibv_context *context,
 		       struct ibv_comp_channel *channel,
 		       void *cq_context)
@@ -262,6 +264,7 @@ int verbs_init_context(struct verbs_context *context_ex,
  * driver wrapper, and context_offset is the number of bytes into the wrapper
  * structure where the verbs_context starts.
  */
+// ref: verbs_init_and_alloc_context
 void *_verbs_init_and_alloc_context(struct ibv_device *device, int cmd_fd,
 				    size_t alloc_size,
 				    struct verbs_context *context_offset,

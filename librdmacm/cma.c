@@ -319,6 +319,7 @@ static int sync_devices_list(void)
 	struct ibv_device **new_list;
 	int i, j, numb_dev;
 
+	// 很重要, 是 libibverbs 库的初始化, 扫描所有设备, 并匹配 driver
 	new_list = ibv_get_device_list(&numb_dev);
 	if (!new_list)
 		return ERR(ENODEV);
@@ -380,6 +381,8 @@ out:
 }
 
 // librdmacm 的 init 函数, 不过不需要用户显式调用, 而是在很多接口里都会尝试例行调用的.
+//
+// 扫描系统, 获得 ib device list
 int ucma_init(void)
 {
 	int ret;
@@ -569,6 +572,7 @@ void rdma_free_devices(struct ibv_context **list)
 	free(list);
 }
 
+// open rdma_cm 设备, 拿到一个 fd, 进而基于这个 fd 和内核的 rdma_ucm.ko 通信
 struct rdma_event_channel *rdma_create_event_channel(void)
 {
 	struct rdma_event_channel *channel;
@@ -757,6 +761,8 @@ err:	ucma_free_id(id_priv);
 	return NULL;
 }
 
+// 类似于 socket 创建
+// 用户态创建 id 结构, 内核态也创建 id 结构
 static int rdma_create_id2(struct rdma_event_channel *channel,
 			   struct rdma_cm_id **id, void *context,
 			   enum rdma_port_space ps, enum ibv_qp_type qp_type)
@@ -1834,6 +1840,8 @@ int rdma_connect(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
 	return ucma_complete(id);
 }
 
+// listen 之前先 bind 了 addr
+// 这里 listen 后, 还从内核里查了一些信息
 int rdma_listen(struct rdma_cm_id *id, int backlog)
 {
 	struct ucma_abi_listen cmd;
@@ -1853,7 +1861,7 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 	// 息保存到 id 结构里, 供后续数据面使用.
 	if (af_ib_support)
 		return ucma_query_addr(id); // 这里的 query 很重要, pd 就是在 query 里赋予的.
-	else
+	else /* 不支持 af_ib 的时候, 只能查 route, 然后通过 route 来获取需要的信息么? 支持 ib 后, 直接将 ib addr 丢进去查询就可以了 ? */
 		return ucma_query_route(id);
 }
 
@@ -1867,6 +1875,7 @@ int rdma_get_request(struct rdma_cm_id *listen, struct rdma_cm_id **id)
 	if (!id_priv->sync)
 		return ERR(EINVAL);
 
+	// (???) 上一次处理的时候出错了, 这里才会有 event
 	if (listen->event) {
 		rdma_ack_cm_event(listen->event);
 		listen->event = NULL;
@@ -2805,7 +2814,7 @@ static int ucma_passive_ep(struct rdma_cm_id *id, struct rdma_addrinfo *res,
 
 // 类似于 socket 创建, bind 地址, 解析地址等
 //
-// 1. 创建 id 结构 (用户态, 内核态)
+// 1. 创建 id 结构 (用户态, 内核态, 类似 socket)
 // 2. 调用一些 resove, set_option 函数, 让内核去底层收集一些信息, 保存到内核态的 id 结构中
 // 3. 然后就创建 qp 了(还是在这个 id 的 ctx 下)
 //
@@ -2837,7 +2846,7 @@ int rdma_create_ep(struct rdma_cm_id **id, struct rdma_addrinfo *res,
 	if (ret)
 		goto err;
 
-	if (res->ai_route_len) {
+	if (res->ai_route_len) { // 说明 route 已经被解析了
 		ret = rdma_set_option(cm_id, RDMA_OPTION_IB, RDMA_OPTION_IB_PATH,
 				      res->ai_route, res->ai_route_len);
 		if (!ret)

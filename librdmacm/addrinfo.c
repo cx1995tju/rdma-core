@@ -239,7 +239,8 @@ static int ucma_getaddrinfo(const char *node, const char *service,
 	if (ret)
 		return ret;
 
-	// 这里需要注意下, 如果是 RoCEv2, ai 里返回的地址类型一般是 AF_INET 或 AF_INET6 的, 这里要转换下
+	// 这里需要注意下, 如果是 RoCEv2, ai 里返回的地址类型一般是 AF_INET 或
+	// AF_INET6 的(getaddinfo 返回的), 这里要转换下
 	// 关注这里的转换逻辑
 	ret = ucma_convert_to_rai(rai, hints, ai);
 	freeaddrinfo(ai);
@@ -259,6 +260,11 @@ static int ucma_getaddrinfo(const char *node, const char *service,
  *
  *
  * summary: 做一些地址转换, 最终还是调用到标准的 getaddrinfo 函数去解析地址信息.
+ *
+ *
+ * librdmacm 同时支持多种底层 rdma 网络(ib, rocev2...). 地址结构是不同的, 需要
+ * 的信息也不同的, 所以提供一个 helper, 用户传入地址(e.g. ip+port), 其将其转换
+ * 为标准的 addr 结构, 供后续使用.
  * */
 int rdma_getaddrinfo(const char *node, const char *service,
 		     const struct rdma_addrinfo *hints,

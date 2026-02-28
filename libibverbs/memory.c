@@ -1,4 +1,9 @@
-/*
+/* 
+ *  ibv_dofork_range(void * base,size_t size)
+ *  ibv_dontfork_range(void * base,size_t size)
+ *  ibv_fork_init(void)
+ *  ibv_is_fork_initialized(void)
+ *
  * Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2006 Cisco Systems, Inc.  All rights reserved.
  *
@@ -122,6 +127,16 @@ out:
 	return ret;
 }
 
+/* 使用 libibverbs 的进程, 如果需要调用 fork(), 那么要先调用下这个函数的
+ *
+ * reg mr 的时候, 内核会将内存 pin 住. fork() 后, 如果某一方做了写操作, 就会有
+ * COW, 分配了新的物理页.
+ *
+ *
+ * 这里初始化一个红黑树, 用来记录内存的情况. 底层 driver 调用
+ * ibv_dontfork_range() ibv_dofork_range() 将内存信息注册到红黑树里.
+ *
+ * */
 int ibv_fork_init(void)
 {
 	void *tmp, *tmp_aligned;
@@ -155,6 +170,7 @@ int ibv_fork_init(void)
 		tmp_aligned = tmp;
 	}
 
+	// 测试下这两个 syscall 是否支持
 	ret = madvise(tmp_aligned, size, MADV_DONTFORK) ||
 	      madvise(tmp_aligned, size, MADV_DOFORK);
 
@@ -163,6 +179,7 @@ int ibv_fork_init(void)
 	if (ret)
 		return ENOSYS;
 
+	// 搞一个结构(红黑树)来记录内存的情况
 	mm_root = malloc(sizeof *mm_root);
 	if (!mm_root)
 		return ENOMEM;
@@ -725,6 +742,7 @@ int ibv_dontfork_range(void *base, size_t size)
 	}
 }
 
+// 一般是前面 dontfork 的内存不使用了, free 前要调用 ibv_dofork_range()
 int ibv_dofork_range(void *base, size_t size)
 {
 	if (mm_root)

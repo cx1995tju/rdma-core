@@ -1,4 +1,228 @@
 /*
+ * DEVICE & PORT
+ *  ibv_close_device
+ *  ibv_open_device
+ *  ibv_query_device
+ *  ibv_query_device_ex
+ *  ibv_import_device
+ *
+ *  ibv_get_device_guid
+ *  ibv_get_device_index
+ *  ibv_get_device_list
+ *  ibv_get_device_name
+ *  ibv_free_device_list
+ *  __ibv_get_device_list
+ *
+ *  _ibv_query_gid_ex
+ *  _ibv_query_gid_table
+ *  ibv_query_gid
+ *  ibv_query_gid_ex
+ *  ibv_query_gid_table
+ *
+ *  ibv_get_pkey_index
+ *  ibv_query_pkey
+ *
+ *  ibv_node_type_str
+ *  ibv_port_state_str
+ *
+ *  ibv_query_port
+ *  ___ibv_query_port
+ *
+ *  ibv_query_rt_values_ex
+ *
+ * PD
+ *  ibv_alloc_pd
+ *  ibv_dealloc_pd
+ *  ibv_import_pd
+ *  ibv_unimport_pd
+ *  ibv_alloc_parent_domain
+ *
+ * QP
+ *  ibv_create_qp
+ *  ibv_destroy_qp
+ *  ibv_modify_qp
+ *  ibv_qp_to_qp_ex
+ *  ibv_query_qp
+ *  ibv_query_qp_data_in_order
+ *  ibv_create_qp_ex
+ *  ibv_modify_qp_rate_limit
+ *  ibv_modify_wq
+ *
+ *  *ibv_post_recv
+ *  *ibv_post_send
+ *
+ * CQ
+ *  ibv_create_cq
+ *  ibv_destroy_cq
+ *  ibv_ack_cq_events
+ *  ibv_get_cq_event
+ *  ibv_resize_cq
+ *  ibv_cq_ex_to_cq
+ *  ibv_create_cq_ex
+ *  ibv_modify_cq
+ *  ibv_req_notify_cq
+ *
+ *  *ibv_poll_cq
+ *
+ *  *ibv_start_poll // 更高效的 vendor-spec 的 poll 接口, 可以避免可能的复制
+ *  *ibv_next_poll
+ *  *ibv_end_poll
+ *
+ * SRQ
+ *  ibv_create_srq
+ *  ibv_destroy_srq
+ *  ibv_modify_srq
+ *  ibv_query_srq
+ *  ibv_create_srq_ex
+ *  ibv_get_srq_num
+ *  *ibv_post_srq_ops
+ *  *ibv_post_srq_recv
+ *
+ * MR/MW/DM
+ *  ibv_dereg_mr
+ *  ibv_import_dm
+ *  ibv_import_mr
+ *  ibv_unimport_dm
+ *  ibv_unimport_mr
+ *  ibv_reg_dmabuf_mr
+ *  ibv_reg_mr
+ *  ibv_reg_mr_iova
+ *  ibv_reg_mr_iova2
+ *  ibv_rereg_mr
+ *  __ibv_reg_mr
+ *  __ibv_reg_mr_iova
+ *  ibv_advise_mr
+ *  ibv_alloc_dm
+ *  ibv_alloc_mw
+ *  ibv_alloc_null_mr
+ *  ibv_bind_mw
+ *  ibv_dealloc_mw
+ *  ibv_free_dm
+ *  ibv_inc_rkey
+ *  ibv_memcpy_from_dm
+ *  ibv_memcpy_to_dm
+ *  ibv_reg_dm_mr
+ *
+ * AH
+ *  ibv_create_ah
+ *  ibv_destroy_ah
+ *  ibv_init_ah_from_wc
+ *  ibv_create_ah_from_wc
+ *
+ *
+ * EVENT
+ *  ibv_ack_async_event
+ *  ibv_get_async_event
+ *  ibv_create_comp_channel
+ *  ibv_destroy_comp_channel
+ *  ibv_event_type_str
+ *
+ *
+ *WC
+ *  ibv_wc_read_byte_len
+ *  ibv_wc_read_completion_ts
+ *  ibv_wc_read_completion_wallclock_ns
+ *  ibv_wc_read_cvlan
+ *  ibv_wc_read_dlid_path_bits
+ *  ibv_wc_read_flow_tag
+ *  ibv_wc_read_imm_data
+ *  ibv_wc_read_invalidated_rkey
+ *  ibv_wc_read_opcode
+ *  ibv_wc_read_qp_num
+ *  ibv_wc_read_sl
+ *  ibv_wc_read_slid
+ *  ibv_wc_read_src_qp
+ *  ibv_wc_read_tm_info
+ *  ibv_wc_read_vendor_err
+ *  ibv_wc_read_wc_flags
+ *
+ * WR
+ *  ibv_wr_abort
+ *  ibv_wr_atomic_cmp_swp
+ *  ibv_wr_atomic_fetch_add
+ *  ibv_wr_atomic_write
+ *  ibv_wr_bind_mw
+ *  ibv_wr_complete
+ *  ibv_wr_flush
+ *  ibv_wr_local_inv
+ *  ibv_wr_rdma_read
+ *  ibv_wr_rdma_write
+ *  ibv_wr_rdma_write_imm
+ *  ibv_wr_send
+ *  ibv_wr_send_imm
+ *  ibv_wr_send_inv
+ *  ibv_wr_send_tso
+ *  ibv_wr_set_inline_data
+ *  ibv_wr_set_inline_data_list
+ *  ibv_wr_set_sge
+ *  ibv_wr_set_sge_list
+ *  ibv_wr_set_ud_addr
+ *  ibv_wr_set_xrc_srqn
+ *  ibv_wr_start
+ *
+ * WQ
+ *  ibv_create_wq
+ *  ibv_create_rwq_ind_table
+ *  ibv_destroy_wq
+ *  ibv_destroy_rwq_ind_table
+ *  ibv_post_wq_recv
+ *
+ *
+ *
+ * MCAST
+ *  ibv_attach_mcast
+ *  ibv_detach_mcast
+ *
+ *
+ * XRC
+ *  ibv_close_xrcd
+ *  ibv_open_qp
+ *  ibv_open_xrcd
+ *
+ * ECE: ref: iwarp rfc6581 Enhanced Connetion Established
+ *  ibv_query_ece
+ *  ibv_set_ece
+ *
+ * COUNTER
+ *  ibv_create_counters
+ *  ibv_destroy_counters
+ *  ibv_attach_counters_point_flow
+ *  ibv_read_counters
+ *
+ * FLOW
+ *  ibv_create_flow
+ *  ibv_create_flow_action_esp
+ *  ibv_destroy_flow
+ *  ibv_destroy_flow_action
+ *  ibv_flow_label_to_udp_sport
+ *  ibv_modify_flow_action_esp
+ *
+ * Thread Domain
+ *  ibv_alloc_td
+ *  ibv_dealloc_td
+ *
+ *
+ * HELPER
+ *  ibv_rate_to_mbps
+ *  ibv_rate_to_mult
+ *  ibv_resolve_eth_l2_from_gid
+ *  ibv_wc_status_str
+ *  ibv_wr_opcode_str
+ *  mbps_to_ibv_rate
+ *  mult_to_ibv_rate
+ *  verbs_get_ctx
+ *  ibv_is_qpt_supported
+ *
+ *
+ * MISC
+ *  ibv_fork_init
+ *  ibv_is_fork_initialized
+ *  ibv_static_providers
+ *
+ *
+ *
+ *
+ *
  * Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2004, 2011-2012 Intel Corporation.  All rights reserved.
  * Copyright (c) 2005, 2006, 2007 Cisco Systems, Inc.  All rights reserved.
@@ -94,10 +318,10 @@ struct ibv_gid_entry {
 
 enum ibv_node_type {
 	IBV_NODE_UNKNOWN	= -1,
-	IBV_NODE_CA 		= 1,
+	IBV_NODE_CA 		= 1,	// 这个
 	IBV_NODE_SWITCH,
 	IBV_NODE_ROUTER,
-	IBV_NODE_RNIC,
+	IBV_NODE_RNIC,                 // iwarp
 	IBV_NODE_USNIC,
 	IBV_NODE_USNIC_UDP,
 	IBV_NODE_UNSPECIFIED,
@@ -158,6 +382,7 @@ enum ibv_atomic_cap {
 	IBV_ATOMIC_GLOB
 };
 
+// dm: device memory
 struct ibv_alloc_dm_attr {
 	size_t length;
 	uint32_t log_align_req;
@@ -818,7 +1043,7 @@ struct ibv_srq_init_attr_ex {
 };
 
 enum ibv_wq_type {
-	IBV_WQT_RQ
+	IBV_WQT_RQ //目前只有 RQ 的 WQ
 };
 
 enum ibv_wq_init_attr_mask {
@@ -1499,6 +1724,7 @@ struct ibv_ece {
 	uint32_t comp_mask;
 };
 
+// 和内核交互的一个通道
 struct ibv_comp_channel {
 	struct ibv_context     *context;
 	int			fd;
@@ -1507,7 +1733,7 @@ struct ibv_comp_channel {
 
 struct ibv_cq {
 	struct ibv_context     *context;
-	struct ibv_comp_channel *channel;
+	struct ibv_comp_channel *channel;	// 支持异步通知 userspace completion events(???)
 	void		       *cq_context;
 	uint32_t		handle;
 	int			cqe;
@@ -2036,8 +2262,8 @@ struct ibv_context_ops {
 
 struct ibv_context {
 	struct ibv_device      *device;
-	struct ibv_context_ops	ops;
-	int			cmd_fd;
+	struct ibv_context_ops	ops;	// 不同设备的 ops 是不同的
+	int			cmd_fd;	// open uverbsX 得到的, ref: verbs_open_device() ->* verbs_init_context()
 	int			async_fd;
 	int			num_comp_vectors;
 	pthread_mutex_t		mutex;

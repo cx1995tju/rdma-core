@@ -1,4 +1,15 @@
-/*
+/* 1. rdma_getaddrinfo(),  地址解析
+ * 2. rdma_create_ep()
+ * 3. rdma_listen()
+ * 4. rdma_get_request()
+ * 5. ibv_query_qp()
+ * 6. rdma_reg_msgs()
+ * 7. rdma_post_recv()
+ * 8. rdma_accept()
+ * 9. rdma_get_recv_comp()
+ * 10. rdma_post_send()
+ * 11. rdma_get_send_comp()
+ *
  * Copyright (c) 2005-2009 Intel Corporation.  All rights reserved.
  *
  * This software is available to you under the OpenIB.org BSD license

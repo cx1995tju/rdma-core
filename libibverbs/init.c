@@ -1,4 +1,13 @@
-/*
+/* 最重要 ibverbs_get_device_list
+ *
+ * APP(或 librdmacm 库) 要使用 libibverbs, 首先是调用这个函数, 扫描系统的 rdma
+ * 设备, 并为其绑定对应的 driver:
+ * - 绑定 driver 的时候, 应该会 open uverbsX 设备, 后续通过这个 ioctl(fd) 和内核交互
+ *
+ * 当然 APP(或 librdmacm 库) 还要保存下所有的设备信息, 后续根据自己要联通的目的
+ * 地址, 来选择设备.
+ *
+ *
  * Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2006 Cisco Systems, Inc.  All rights reserved.
  *
@@ -209,6 +218,7 @@ static int find_sysfs_devs(struct list_head *tmp_sysfs_dev_list)
 	struct dirent *dent;
 	int ret = 0;
 
+	// /sys/class/infiniband_verbs
 	if (!check_snprintf(class_path, sizeof(class_path),
 			    "%s/class/infiniband_verbs", ibv_get_sysfs_path()))
 		return ENOMEM;
@@ -237,6 +247,7 @@ static int find_sysfs_devs(struct list_head *tmp_sysfs_dev_list)
 	return ret;
 }
 
+// driver.h 中的宏把这里的函数名替换为了 verbs_register_driver_34
 void verbs_register_driver(const struct verbs_device_ops *ops)
 {
 	struct ibv_driver *driver;
@@ -548,7 +559,7 @@ static void try_all_drivers(struct list_head *sysfs_list,
 	}
 }
 
-// 扫描系统中的 ib 设备, 通过两种方式扫描
+// XXX: 最重要 扫描系统中的 ib 设备, 通过两种方式扫描
 // - netlink
 // - sysfs 文件系统
 int ibverbs_get_device_list(struct list_head *device_list)

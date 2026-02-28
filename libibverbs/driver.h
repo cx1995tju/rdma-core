@@ -461,10 +461,13 @@ typedef struct verbs_device *(*verbs_driver_init_func)(const char *uverbs_sys_pa
  * statically linking or using a dynmic linker with symbol versioning turned
  * off.
  */
+// 这里被处理为了 verbs_register_driver_34
 #define ___make_verbs_register_driver(x) verbs_register_driver_ ## x
 #define __make_verbs_register_driver(x)  ___make_verbs_register_driver(x)
 #define verbs_register_driver __make_verbs_register_driver(IBVERBS_PABI_VERSION)
 
+// 宏直接把这里的函数名字替换为了 verbs_register_driver_34
+// ref: init.c verbs_register_driver
 void verbs_register_driver(const struct verbs_device_ops *ops);
 
 /*

@@ -147,6 +147,7 @@ struct ibv_pd *mlx5_alloc_pd(struct ibv_context *context)
 	if (!pd)
 		return NULL;
 
+	// 通过 ioctl 和内核交互咯
 	if (ibv_cmd_alloc_pd(context, &pd->ibv_pd, &cmd, sizeof cmd,
 			     &resp.ibv_resp, sizeof resp)) {
 		free(pd);

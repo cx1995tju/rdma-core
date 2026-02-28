@@ -1,4 +1,32 @@
 /*
+ * ibv_query_device
+ * ibv_query_port
+ * ibv_query_gid
+ * ibv_query_pkey
+ * ibv_get_pkey_index
+ * ibv_alloc_pd
+ * ibv_dealloc_pd
+ * ibv_reg_mr
+ * ibv_rereg_mr
+ * ibv_dereg_mr
+ * ibv_create_cq
+ * ibv_resize_cq
+ * ibv_destroy_cq
+ * ibv_get_cq_event
+ * ibv_ack_cq_events
+ * ibv_create_srq
+ * ibv_modify_srq
+ * ibv_query_srq
+ * ibv_destroy_srq
+ * ibv_create_qp
+ * ibv_query_qp
+ * ibv_modify_qp
+ * ibv_destroy_qp
+ * ibv_create_ah
+ * ibv_destroy_ah
+ * ibv_attach_mcast
+ * ibv_detach_mcast
+ *
  * Copyright (c) 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2006, 2007 Cisco Systems, Inc.  All rights reserved.
  * Copyright (c) 2020 Intel Corperation.  All rights reserved.
@@ -293,6 +321,8 @@ LATEST_SYMVER_FUNC(ibv_alloc_pd, 1_1, "IBVERBS_1.1",
 {
 	struct ibv_pd *pd;
 
+	// 简单的调用 vendor 的 alloc_pd
+	// ref: mlx5_alloc_pd
 	pd = get_ops(context)->alloc_pd(context);
 	if (pd)
 		pd->context = context;

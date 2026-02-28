@@ -1,4 +1,89 @@
-/*
+/* verbs context: (per-device ???)
+ *  verbs_open_device
+ *  _verbs_init_and_alloc_context
+ *  verbs_init_context
+ *  verbs_set_ops
+ *  verbs_uninit_context
+ *
+ *  ibv_cmd_get_context
+ *  ibv_cmd_query_context
+ *
+ *  verbs_init_cq (per-cq)
+ *
+ *
+ * HCA Resources
+ * Device & Port:            | PD:                 | MR/MW/DM:              | QP:                    | SRQ:                   | CQ & Notification:      | Address Handle:     | GID:
+ *  ibv_cmd_query_device_any |  ibv_cmd_alloc_pd   |  ibv_cmd_advise_mr     |  ibv_cmd_create_qp     |  ibv_cmd_create_srq    |  ibv_cmd_create_cq      |  ibv_cmd_create_ah  |  __ibv_query_gid_ex
+ *  ibv_cmd_query_port       |  ibv_cmd_dealloc_pd |  ibv_cmd_alloc_dm      |  ibv_cmd_create_qp_ex  |  ibv_cmd_create_srq_ex |  ibv_cmd_create_cq_ex   |  ibv_cmd_destroy_ah |  ibv_query_gid_type
+ *                           |                     |  ibv_cmd_alloc_mw      |  ibv_cmd_create_qp_ex2 |  ibv_cmd_destroy_srq   |  ibv_cmd_create_cq_ex2  |                     |
+ *                           |                     |  ibv_cmd_dealloc_mw    |  ibv_cmd_destroy_qp    |  ibv_cmd_modify_srq    |  ibv_cmd_destroy_cq     |                     |
+ *                           |                     |  ibv_cmd_dereg_mr      |  ibv_cmd_modify_qp     |  ibv_cmd_post_srq_recv |  ibv_cmd_modify_cq      |                     |
+ *                           |                     |  ibv_cmd_free_dm       |  ibv_cmd_modify_qp_ex  |  ibv_cmd_query_srq     |  ibv_cmd_poll_cq        |                     |
+ *                           |                     |  ibv_cmd_query_mr      |  ibv_cmd_post_recv     |                        |  ibv_cmd_req_notify_cq  |                     |
+ *                           |                     |  ibv_cmd_reg_dm_mr     |  ibv_cmd_post_send     |                        |  ibv_cmd_resize_cq      |                     |
+ *                           |                     |  ibv_cmd_reg_dmabuf_mr |  ibv_cmd_query_qp      |                        |  ibv_cmd_alloc_async_fd |                     |
+ *                           |                     |  ibv_cmd_reg_mr        |                        |                        |                         |                     |
+ *                           |                     |  ibv_cmd_rereg_mr      |                        |                        |                         |                     |
+ *
+ * XXX: Question:
+ * 为什么有 ibv_cmd_post_send 和 ibv_cmd_post_recv, 还有 ibv_cmd_post_srq_recv? 数据面不应该绕过内核么?
+ * 兼容老硬件导致的? 老的硬件不是完全的 bypass kernel (?)
+ *
+ *
+ * WQ: ref: 2864904f82bf3f08f9c87225238d107a66ef31b2
+ *  ibv_cmd_create_wq
+ *  ibv_cmd_destroy_wq
+ *  ibv_cmd_modify_wq
+ *  ibv_cmd_create_rwq_ind_table
+ *  ibv_cmd_destroy_rwq_ind_table
+ *
+ *  关于 WQ 机制. WQ 不是 spec 里的内容. 是为了支持 RSS 的. ibv_create_wq() 可
+ *  以创建多个接收队列, 然后将其关联到一个 Indirection Table. 数据包到达的时候
+ *  会根据 hash 算法将其分发到不同 WQ. WQ 机制一般是用来处理 Raw Ethernet 的时
+ *  候使用的.
+ *
+ *  UD 服务有时候也会用 WQ 机制, 某个 UD QP 的流量特别大的时候, 将其分发到多个
+ *  WQ.
+ *  XXX: 目前只有 RQ 的 WQ, ref: IBV_WQT_RQ
+ *
+ *
+ *
+ * MCAST:
+ *  ibv_cmd_attach_mcast
+ *  ibv_cmd_detach_mcast
+ *
+ *
+ * XRC:
+ *  ibv_cmd_close_xrcd
+ *  ibv_cmd_open_xrcd
+ *  ibv_cmd_open_qp
+ *
+ * Counters:
+ *  ibv_cmd_create_counters
+ *  ibv_cmd_destroy_counters
+ *  ibv_cmd_read_counters
+ *
+ * Flow: // 针对 rdma 的一些 flow 卸载
+ *  ibv_cmd_create_flow
+ *  ibv_cmd_create_flow_action_esp
+ *  ibv_cmd_destroy_flow
+ *  ibv_cmd_destroy_flow_action
+ *  ibv_cmd_modify_flow_action_esp
+ *
+ * LOG
+ *  __verbs_log
+ *
+ *
+ * FORK:
+ *  ibv_dofork_range
+ *  ibv_dontfork_range
+ *
+ * SYSFS
+ *  ibv_get_sysfs_path
+ *  ibv_read_ibdev_sysfs_file
+ *  ibv_read_sysfs_file
+ *  ibv_read_sysfs_file_at
+ *
  * Copyright (c) 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005 PathScale, Inc.  All rights reserved.
  * Copyright (c) 2006 Cisco Systems, Inc.  All rights reserved.

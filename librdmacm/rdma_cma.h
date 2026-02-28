@@ -1,4 +1,13 @@
-/*
+/* 重要抽象
+ * - channel: 和内核 rdma_ucm.ko 交互的通道
+ * - id: 类似 socket 接口, qp 作为 id 的资源存在
+ *
+ *
+ * 主要是基于 rdma_ucma.ko 提供的 miscdev rdma_cm 上的接口, 来实现了一套
+ * socket-like 接口, 方便编程. 
+ *
+ *
+ *
  * Copyright (c) 2005 Voltaire Inc.  All rights reserved.
  * Copyright (c) 2005-2014 Intel Corporation.  All rights reserved.
  *
@@ -46,6 +55,8 @@ extern "C" {
 /*
  * Upon receiving a device removal event, users must destroy the associated
  * RDMA identifier and release all resources allocated with the device.
+ *
+ * 和内核交互事件
  */
 enum rdma_cm_event_type {
 	RDMA_CM_EVENT_ADDR_RESOLVED,
@@ -82,6 +93,8 @@ enum rdma_port_space {
 /*
  * Global qkey value for UDP QPs and multicast groups created via the 
  * RDMA CM.
+ *
+ * 定义的一个默认 QKEY for UD
  */
 #define RDMA_UDP_QKEY 0x01234567
 
@@ -91,6 +104,8 @@ struct rdma_ib_addr {
 	__be16		pkey;
 };
 
+// src addr + dst addr + ib 特有的地址信息
+// rocev2 在 src/dst addr 保存地址, 同时在 ibaddr 保存转换后的 gid (???)
 struct rdma_addr {
 	union {
 		struct sockaddr		src_addr;
@@ -115,20 +130,25 @@ struct rdma_route {
 	int			 num_paths;
 };
 
+// open rdma_cm 这个设备, 拿到一个 fd, 通过这个 fd 和内核 rdma_ucma.ko 进行通信
 struct rdma_event_channel {
 	int			fd;
 };
 
+
+// socket-like 的抽象, 要关联到一个 qp 的
+//
+// ref: cmd_id_private, 在此基础上扩展的
 struct rdma_cm_id {
 	struct ibv_context	*verbs;
 	struct rdma_event_channel *channel; // 和 内核通信的通道, ref: ucma_alloc_id() -> rdma_create_event_channel(), 每个单独的 id 都会 open rdma_cm 设备, 来创建和内核通信的通道的.
-	void			*context;
+	void			*context;   // opaque
 	struct ibv_qp		*qp;
 	struct rdma_route	 route;
 	enum rdma_port_space	 ps;
-	uint8_t			 port_num;
+	uint8_t			 port_num; // 关联到哪个 ib 设备的 port 的
 	struct rdma_cm_event	*event;
-	struct ibv_comp_channel *send_cq_channel;
+	struct ibv_comp_channel *send_cq_channel; // ref: ibv_create_comp_channel
 	struct ibv_cq		*send_cq;
 	struct ibv_comp_channel *recv_cq_channel;
 	struct ibv_cq		*recv_cq;
@@ -142,6 +162,7 @@ enum {
 	RDMA_MAX_INIT_DEPTH = 0xFF
 };
 
+// for rc???
 struct rdma_conn_param {
 	const void *private_data;
 	uint8_t private_data_len;
@@ -155,6 +176,7 @@ struct rdma_conn_param {
 	uint32_t qp_num;
 };
 
+// for ud???
 struct rdma_ud_param {
 	const void *private_data;
 	uint8_t private_data_len;
@@ -163,6 +185,7 @@ struct rdma_ud_param {
 	uint32_t qkey;
 };
 
+// 连接建立相关的 event
 struct rdma_cm_event {
 	struct rdma_cm_id	*id;
 	struct rdma_cm_id	*listen_id;
@@ -182,20 +205,29 @@ struct rdma_cm_event {
 // rdma 的地址信息
 // ref: ucma_convert_to_rai() 可以猜测, 目前用户态 librdmacm 并不是所有的 qp_type 都支持的
 struct rdma_addrinfo {
-	int			ai_flags;
-	int			ai_family;
+	int			ai_flags;   // %RAI_PASSIVE
+	int			ai_family;  // AF_INET, AF_INET6, AF_IB
+
 	int			ai_qp_type; // %IBV_QPT_RC
 	int			ai_port_space; // %RDMA_PS_TCP
+
+	/* src/dst 地址信息, 可能的类型: sockaddr_in, sockaddr_in6, sockaddr_ib */
 	socklen_t		ai_src_len;
 	socklen_t		ai_dst_len;
 	struct sockaddr		*ai_src_addr;
 	struct sockaddr		*ai_dst_addr;
-	char			*ai_src_canonname;
+	char			*ai_src_canonname; // dns 解析后的 canonical name
 	char			*ai_dst_canonname;
+
+	// rdma (ib ???)特有的信息
 	size_t			ai_route_len;
 	void			*ai_route;
+
+	// conn 私有的信息, 比如 QP 参数等
 	size_t			ai_connect_len;
 	void			*ai_connect;
+
+	// 信息解析的时候可能返回一个 list 的
 	struct rdma_addrinfo	*ai_next;
 };
 
@@ -711,6 +743,7 @@ const char *rdma_event_str(enum rdma_cm_event_type event);
 /* Option levels */
 enum {
 	RDMA_OPTION_ID		= 0,
+	// 不仅仅指 native IB, 包含 rocev2 的
 	RDMA_OPTION_IB		= 1
 };
 
@@ -723,6 +756,7 @@ enum {
 };
 
 enum {
+	// 不仅仅指 native IB, 包含 rocev2 的
 	RDMA_OPTION_IB_PATH	 = 1	/* struct ibv_path_data[] */
 };
 
