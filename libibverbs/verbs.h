@@ -1,7 +1,51 @@
-/*
+/* 各种 context 和 ops 结构o
+ *
+ * ~verbs_device_ops~ 结构, load driver 的时候, 创建 verbs_device 结构的时候分
+ * 配的, 其中最重要的就是 ~alloc_context()~, e.g. ~mlx5_alloc_context()~. 这里
+ * 会一次性分配了下述三个 context 结构, 这些结构的关系:
+ * ~mlx5_alloc_context() -> mlx5_init_context() -> _verbs_init_and_alloc_context()~
+ *
+ * ~ibv_context~ for upper app
+ *   - ~ibv_context_ops~
+ *   - 访问: ~ibv_context.ops~
+ *   - ref ~verbs_set_ops()~, ibv_context_ops 里的函数是从 ~verbs_context_ops()~ copy 过来的
+ *
+ * ~verbs_context~ 让 provider 来实现的结构, 其最后一个 member 必须是 ~ibv_context~
+ *   - ~verbs_context_ops~ ~mlx5_alloc_context() -> mlx5_set_context() -> verbs_set_ops()~ 的时候设置的
+ *   - 另外 verbs_context 结构里还直接有一些 callback, ref: verbs_set_ops(), 其实也是从 verbs_cnotext_ops 里 copy 出来的.
+ *   - 访问: ~verbs_context -> struct verbs_ex_private priv -> verbs_context_ops~
+ *
+ * ~mlx5_context~ provider-spec 结构, first member 是 ~verbs_context~
+ *
+ *
+ * 小结:
+ * - ~ibv_context, ibv_context_ops~ 是提供给 upper app 使用的
+ * - ~verbs_context, verbs_context_ops~ 是 generic 层让 provider 实现的
+ * - ~mlx5_context~ 是 provider 的内部实现
+ * - 各种 ops 结构的关系: ref: verbs_set_ops()
+ *
+ * ----------------------------------------------------------------------------------------------------
+ *
+ * 关于 import 接口, 就是复制某个资源, 方便将其分享给其他线程. 这样避免在内核里
+ * 创建一个新的 ucontext.
+ *
+ * ----------------------------------------------------------------------------------------------------
+ *  几种 mr reg 接口比较
+ *  - ibv_reg_mr        // 最基础的 reg mr, 内核要 pin 住物理内存
+ *  - ibv_reg_dm_mr     // 使用 device memory 来注册 mr, 优化 send 方向的小消息(将 dma read 变成了 mmio write, 避免了 dma read completion 的开销?)
+ *  - ibv_alloc_null_mr // 长度为 0, 占位用的, 提供 lkey/rkey handle
+ *  - ibv_reg_dmabuf_mr // ref: https://kernel.org/doc/html/v5.18/userspace-api/media/v4l/dmabuf.html?highlight=dma%20buffer
+ *	nvidia_peermem 支持 ibv_reg_mr() 直接注册 gpu 显存. 现在有新的标准的
+ *	linux 接口了, 内核实现了 dmabuf 的机制, 可以在这个接口上直接来注册 gpu
+ *	显存
+ *
+ * ----------------------------------------------------------------------------------------------------
+ *
+ *
+ *
  * DEVICE & PORT
- *  ibv_close_device
  *  ibv_open_device
+ *  ibv_close_device
  *  ibv_query_device
  *  ibv_query_device_ex
  *  ibv_import_device
@@ -30,7 +74,7 @@
  *
  *  ibv_query_rt_values_ex
  *
- * PD
+ * PD: 简单的底层 vendor-spec ops 调用
  *  ibv_alloc_pd
  *  ibv_dealloc_pd
  *  ibv_import_pd
@@ -41,12 +85,13 @@
  *  ibv_create_qp
  *  ibv_destroy_qp
  *  ibv_modify_qp
- *  ibv_qp_to_qp_ex
  *  ibv_query_qp
- *  ibv_query_qp_data_in_order
+ *
+ *  ibv_qp_to_qp_ex
  *  ibv_create_qp_ex
+ *
+ *  ibv_query_qp_data_in_order
  *  ibv_modify_qp_rate_limit
- *  ibv_modify_wq
  *
  *  *ibv_post_recv
  *  *ibv_post_send
@@ -54,12 +99,15 @@
  * CQ
  *  ibv_create_cq
  *  ibv_destroy_cq
- *  ibv_ack_cq_events
- *  ibv_get_cq_event
  *  ibv_resize_cq
- *  ibv_cq_ex_to_cq
- *  ibv_create_cq_ex
  *  ibv_modify_cq
+ *
+ *  ibv_create_cq_ex
+ *  ibv_cq_ex_to_cq
+ *
+ *  ibv_get_cq_event
+ *  ibv_ack_cq_events
+ *
  *  ibv_req_notify_cq
  *
  *  *ibv_poll_cq
@@ -75,42 +123,50 @@
  *  ibv_query_srq
  *  ibv_create_srq_ex
  *  ibv_get_srq_num
+ *
  *  *ibv_post_srq_ops
  *  *ibv_post_srq_recv
  *
  * MR/MW/DM
- *  ibv_dereg_mr
- *  ibv_import_dm
  *  ibv_import_mr
- *  ibv_unimport_dm
  *  ibv_unimport_mr
- *  ibv_reg_dmabuf_mr
  *  ibv_reg_mr
- *  ibv_reg_mr_iova
- *  ibv_reg_mr_iova2
- *  ibv_rereg_mr
  *  __ibv_reg_mr
+ *  ibv_reg_mr_iova
  *  __ibv_reg_mr_iova
+ *  ibv_reg_mr_iova2	// reg_mr 接口最底层都是这个, 其他的都是历史遗留问题
+ *  ibv_dereg_mr
+ *
+ *  ibv_rereg_mr
+ *
  *  ibv_advise_mr
- *  ibv_alloc_dm
- *  ibv_alloc_mw
+ *  ibv_reg_dm_mr
+ *  ibv_reg_dmabuf_mr
  *  ibv_alloc_null_mr
+ *
+ *  ibv_alloc_mw
  *  ibv_bind_mw
  *  ibv_dealloc_mw
+ *
+ *  ibv_import_dm
+ *  ibv_unimport_dm
+ *  ibv_alloc_dm
  *  ibv_free_dm
- *  ibv_inc_rkey
  *  ibv_memcpy_from_dm
  *  ibv_memcpy_to_dm
- *  ibv_reg_dm_mr
+ *
+ *  ibv_inc_rkey
+ *
  *
  * AH
  *  ibv_create_ah
  *  ibv_destroy_ah
- *  ibv_init_ah_from_wc
+ *
+ *  ibv_init_ah_from_wc // datagram 服务收到报文后, 需要在 wc 里携带 remote 地址信息的
  *  ibv_create_ah_from_wc
  *
  *
- * EVENT
+ * EVENT: async event 是 device 粒度的
  *  ibv_ack_async_event
  *  ibv_get_async_event
  *  ibv_create_comp_channel
@@ -118,55 +174,90 @@
  *  ibv_event_type_str
  *
  *
- *WC
- *  ibv_wc_read_byte_len
- *  ibv_wc_read_completion_ts
- *  ibv_wc_read_completion_wallclock_ns
- *  ibv_wc_read_cvlan
- *  ibv_wc_read_dlid_path_bits
- *  ibv_wc_read_flow_tag
- *  ibv_wc_read_imm_data
- *  ibv_wc_read_invalidated_rkey
+ * WC: cq 上的 extension 接口, ref: struct ibv_cq_ex 
  *  ibv_wc_read_opcode
- *  ibv_wc_read_qp_num
- *  ibv_wc_read_sl
- *  ibv_wc_read_slid
- *  ibv_wc_read_src_qp
- *  ibv_wc_read_tm_info
  *  ibv_wc_read_vendor_err
+ *  ibv_wc_read_byte_len
+ *  ibv_wc_read_imm_data
+ *  ibv_wc_read_qp_num
+ *  ibv_wc_read_src_qp
  *  ibv_wc_read_wc_flags
+ *  ibv_wc_read_slid
+ *  ibv_wc_read_sl
+ *  ibv_wc_read_dlid_path_bits
+ *  ibv_wc_read_completion_ts
+ *  ibv_wc_read_cvlan
+ *  ibv_wc_read_flow_tag
+ *  ibv_wc_read_tm_info
+ *  ibv_wc_read_completion_wallclock_ns
+ *  ibv_wc_read_invalidated_rkey
  *
- * WR
- *  ibv_wr_abort
+ *
+ * WR: qp 上的 extension 接口, ref: struct ibv_qp_ex
  *  ibv_wr_atomic_cmp_swp
+ *
  *  ibv_wr_atomic_fetch_add
- *  ibv_wr_atomic_write
+ *
  *  ibv_wr_bind_mw
- *  ibv_wr_complete
- *  ibv_wr_flush
+ *
  *  ibv_wr_local_inv
+ *
  *  ibv_wr_rdma_read
  *  ibv_wr_rdma_write
  *  ibv_wr_rdma_write_imm
+ *
  *  ibv_wr_send
  *  ibv_wr_send_imm
  *  ibv_wr_send_inv
  *  ibv_wr_send_tso
+ *
+ *  ibv_wr_set_ud_addr
+ *
+ *  ibv_wr_set_xrc_srqn
+ *
  *  ibv_wr_set_inline_data
  *  ibv_wr_set_inline_data_list
+ *
  *  ibv_wr_set_sge
  *  ibv_wr_set_sge_list
- *  ibv_wr_set_ud_addr
- *  ibv_wr_set_xrc_srqn
+ *
  *  ibv_wr_start
+ *  ibv_wr_complete
+ *  ibv_wr_abort
  *
- * WQ
+ *  ibv_wr_atomic_write
+ *
+ *  ibv_wr_flush
+ *
+ *
+ * WQ: ref: struct ibv_wq
  *  ibv_create_wq
- *  ibv_create_rwq_ind_table
+ *  ibv_modify_wq
  *  ibv_destroy_wq
+ *  ibv_create_rwq_ind_table
  *  ibv_destroy_rwq_ind_table
- *  ibv_post_wq_recv
+ *  *ibv_post_wq_recv
  *
+ *
+ * COUNTER
+ *  ibv_create_counters
+ *  ibv_destroy_counters
+ *  ibv_attach_counters_point_flow
+ *  ibv_read_counters
+ *
+ *
+ * FLOW
+ *  ibv_create_flow
+ *  ibv_create_flow_action_esp
+ *  ibv_destroy_flow
+ *  ibv_destroy_flow_action
+ *  ibv_flow_label_to_udp_sport
+ *  ibv_modify_flow_action_esp
+ *
+ *
+ * Thread Domain: ref struct ibv_td
+ *  ibv_alloc_td
+ *  ibv_dealloc_td
  *
  *
  * MCAST
@@ -182,24 +273,6 @@
  * ECE: ref: iwarp rfc6581 Enhanced Connetion Established
  *  ibv_query_ece
  *  ibv_set_ece
- *
- * COUNTER
- *  ibv_create_counters
- *  ibv_destroy_counters
- *  ibv_attach_counters_point_flow
- *  ibv_read_counters
- *
- * FLOW
- *  ibv_create_flow
- *  ibv_create_flow_action_esp
- *  ibv_destroy_flow
- *  ibv_destroy_flow_action
- *  ibv_flow_label_to_udp_sport
- *  ibv_modify_flow_action_esp
- *
- * Thread Domain
- *  ibv_alloc_td
- *  ibv_dealloc_td
  *
  *
  * HELPER
@@ -220,7 +293,8 @@
  *  ibv_static_providers
  *
  *
- *
+ * 核心数据结构
+ * - struct ibv_context. ref: ibv_open_device()
  *
  *
  * Copyright (c) 2004, 2005 Topspin Communications.  All rights reserved.
@@ -696,6 +770,7 @@ enum ibv_event_type {
 	IBV_EVENT_WQ_FATAL,
 };
 
+// ref: ibv_get_async_event 可以看出 async event 是 device 粒度的
 struct ibv_async_event {
 	union {
 		struct ibv_cq  *cq;
@@ -840,7 +915,7 @@ enum ibv_access_flags {
 	IBV_ACCESS_REMOTE_ATOMIC	= (1<<3),
 	IBV_ACCESS_MW_BIND		= (1<<4),
 	IBV_ACCESS_ZERO_BASED		= (1<<5),
-	IBV_ACCESS_ON_DEMAND		= (1<<6),
+	IBV_ACCESS_ON_DEMAND		= (1<<6), // on demand paging
 	IBV_ACCESS_HUGETLB		= (1<<7),
 	IBV_ACCESS_FLUSH_GLOBAL		= (1 << 8),
 	IBV_ACCESS_FLUSH_PERSISTENT	= (1 << 9),
@@ -863,6 +938,11 @@ struct ibv_td_init_attr {
 	uint32_t comp_mask;
 };
 
+// 引入了一个新的概念, 来将 verbs 分组, 优化多线程环境中的驱动行为
+// mlx5 中用这个概念来 group UAR register, 进而斌南在 post send path 上的 lock
+// 
+// 如果使用了 ibv_td 的话, 那么 driver 内部对于该 thread 下创建 verbs 对象的时
+// 候可以不使用 lock.
 struct ibv_td {
 	struct ibv_context     *context;
 };
@@ -1158,7 +1238,7 @@ enum ibv_qp_init_attr_mask {
 	IBV_QP_INIT_ATTR_MAX_TSO_HEADER = 1 << 3,
 	IBV_QP_INIT_ATTR_IND_TABLE	= 1 << 4,
 	IBV_QP_INIT_ATTR_RX_HASH	= 1 << 5,
-	IBV_QP_INIT_ATTR_SEND_OPS_FLAGS = 1 << 6,
+	IBV_QP_INIT_ATTR_SEND_OPS_FLAGS = 1 << 6, // ref: ibv_qp_ex
 };
 
 enum ibv_qp_create_flags {
@@ -1486,6 +1566,18 @@ struct ibv_srq {
  * - Contains receive WQEs, in this case its PD serves as scatter as well.
  * - Exposes post receive function to be used to post a list of work
  *   requests (WRs) to its receive queue.
+ *
+ *
+ * WQ: ref: 2864904f82bf3f08f9c87225238d107a66ef31b2
+ *  关于 WQ 机制. WQ 不是 spec 里的内容. 是为了支持 RSS 的. ibv_create_wq() 可
+ *  以创建多个接收队列, 然后将其关联到一个 Indirection Table. 数据包到达的时候
+ *  会根据 hash 算法将其分发到不同 WQ. WQ 机制一般是用来处理 Raw Ethernet 的时
+ *  候使用的.
+ *
+ *  UD 服务有时候也会用 WQ 机制, 某个 UD QP 的流量特别大的时候, 将其分发到多个
+ *  WQ.
+ *  XXX: 目前只有 RQ 的 WQ, ref: IBV_WQT_RQ
+ *
  */
 struct ibv_wq {
 	struct ibv_context     *context;
@@ -1522,6 +1614,18 @@ struct ibv_qp {
 	uint32_t		events_completed;
 };
 
+// extension qp, 支持更高效的 post 操作. 减少 cpu branching 和 locking
+// man ibv_wr_abort
+//
+// usage:
+// - 首先要 ~ibv_create_qp_ex()~ 创建 extension qp. 这样可以在 comp_mask 里使用
+//   IBV_QP_INIT_ATTR_SEND_OPS_FLAGS. send_ops_flags 要设置为所有 WR type 的或.
+//
+// - post wr 操作必须在 ibv_wr_start() 和 ibv_wr_complete()/ibv_wr_abort() 的
+//   critical region 之间. 其中 ibv_wr_complet() 会一直等待 queue 上没有 work
+//   了, 而 ibv_wr_abort() 则会立即返回, 丢弃掉 ibv_wr_start() 上准备的 wr 的.
+//
+// - wr 不能自己分配后直接赋值, 而是要用下面的各种函数来设置.
 struct ibv_qp_ex {
 	struct ibv_qp qp_base;
 	uint64_t comp_mask;
@@ -1725,12 +1829,16 @@ struct ibv_ece {
 };
 
 // 和内核交互的一个通道
+// ref: ibv_destroy_cq(), 创建/销毁和 channel 相关的资源的时候, 注意更新 refcnt
 struct ibv_comp_channel {
 	struct ibv_context     *context;
 	int			fd;
 	int			refcnt;
 };
 
+// 通过 ibv_get_cq_event() 拿到的所有 event 必须使用 ibv_ack_cq_events() 去 ack
+// 必须确保所有的 event 都被 ack 了, 才能 destroy_cq 的
+// 当然一次 ibv_ack_cq_events() 调用可以 ack 多个 event 的
 struct ibv_cq {
 	struct ibv_context     *context;
 	struct ibv_comp_channel *channel;	// 支持异步通知 userspace completion events(???)
@@ -1772,6 +1880,7 @@ struct ibv_cq_ex {
 			     struct ibv_poll_cq_attr *attr);
 	int (*next_poll)(struct ibv_cq_ex *current);
 	void (*end_poll)(struct ibv_cq_ex *current);
+	// 下面接口基本就是安全的读出 curr cqe 的一些信息.
 	enum ibv_wc_opcode (*read_opcode)(struct ibv_cq_ex *current);
 	uint32_t (*read_vendor_err)(struct ibv_cq_ex *current);
 	uint32_t (*read_byte_len)(struct ibv_cq_ex *current);
@@ -1846,6 +1955,9 @@ static inline __be32 ibv_wc_read_imm_data(struct ibv_cq_ex *cq)
 	return cq->read_imm_data(cq);
 }
 
+// 你提供给远端的 rkey，如果你想主动废掉它，你可以 invalidate / rebind，然后通
+// 过 CQ 事件 + ibv_wc_read_invalidated_rkey() 确认硬件已经把旧 rkey 失效。
+// ref: mlx5_cq_read_wc_imm_data()
 static inline uint32_t ibv_wc_read_invalidated_rkey(struct ibv_cq_ex *cq)
 {
 #ifdef __CHECKER__
@@ -2217,6 +2329,8 @@ struct ibv_device {
 };
 
 struct _compat_ibv_port_attr;
+// ref: verbs_set_ops(), 这里的函数都是从 verbs_context_ops copy 过来的
+// ref: verbs_set_ops() 仅仅为了兼容性保留的
 struct ibv_context_ops {
 	int (*_compat_query_device)(struct ibv_context *context,
 				    struct ibv_device_attr *device_attr);
@@ -2260,6 +2374,15 @@ struct ibv_context_ops {
 	void *(*_compat_async_event)(void);
 };
 
+// ref: ibv_open_device()
+//
+// ref: verbs_get_ctx_op()
+//
+// ref: verbs_context
+//
+// ibv device context 结构, load driver 后, 通过 ibv_open_device 结构来初始化.
+//
+// 一个这个结构, 对应到内核里应该就是一个 ucontext 的.
 struct ibv_context {
 	struct ibv_device      *device;
 	struct ibv_context_ops	ops;	// 不同设备的 ops 是不同的
@@ -2357,6 +2480,9 @@ struct ibv_values_ex {
 	struct timespec raw_clock;
 };
 
+// 这里的 callback 也是从 verbs_context_ops 里 copy 过来的.
+// 这里的 callback 都是为了支持 extensions 的么? 都是为了兼容导致的?
+// ref: verbs_set_ops()
 struct verbs_context {
 	/*  "grows up" - new fields go here */
 	int (*query_port)(struct ibv_context *context, uint8_t port_num,
@@ -2391,6 +2517,10 @@ struct verbs_context {
 							  struct ibv_flow_action_esp_attr *attr);
 	int (*modify_qp_rate_limit)(struct ibv_qp *qp,
 				    struct ibv_qp_rate_limit_attr *attr);
+	// 引入 parent_domain  概念, 其中包含了 ibv_pd, ibv_td, 以及将来控制更多的 domain
+	// 这样方便创建或者 pass verbs object 的时候, 一次性提供这些 domain
+	// 另外为了避免更改当前的 verbs 接口, 所以还是使用 ibv_pd 来表示 parent domain
+	// driver 自己负责在内部实现来区分到底是老的 ibv_pd, 还是支持 parent domain 的 ibv_pd
 	struct ibv_pd *(*alloc_parent_domain)(struct ibv_context *context,
 					      struct ibv_parent_domain_init_attr *attr);
 	int (*dealloc_td)(struct ibv_td *td);
@@ -2548,6 +2678,9 @@ __be64 ibv_get_device_guid(struct ibv_device *device);
 
 /**
  * ibv_open_device - Initialize device for use
+ *
+ * rdmacm 中首先看到 device_list, 然后调用这个函数打开 device, 之后就可以通过
+ * context 来操作 device 了
  */
 struct ibv_context *ibv_open_device(struct ibv_device *device);
 
@@ -2903,6 +3036,7 @@ static inline int ibv_dealloc_mw(struct ibv_mw *mw)
 
 /**
  * ibv_inc_rkey - Increase the 8 lsb in the given rkey
+ * rkey 的低 8b 可能要用户去分配 (?)
  */
 static inline uint32_t ibv_inc_rkey(uint32_t rkey)
 {
@@ -3148,6 +3282,10 @@ void ibv_ack_cq_events(struct ibv_cq *cq, unsigned int nevents);
  * number of completions returned.  If the return value is
  * non-negative and strictly less than num_entries, then the CQ was
  * emptied.
+ *
+ * 传统的 poll cq 接口, return value 小于 0 则是出错了. >= 0 则是返回的 wc 的数目.
+ *
+ * 如果没有出错, 且返回的数目小于 num_entries, 则说明 cq 已经被 poll 空了.
  */
 static inline int ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc *wc)
 {
@@ -3162,6 +3300,8 @@ static inline int ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc 
  * @solicited_only: If non-zero, an event will be generated only for
  *   the next solicited CQ entry.  If zero, any CQ entry, solicited or
  *   not, will generate an event.
+ *
+ *   控制 cq 产生 notification 的条件.
  */
 static inline int ibv_req_notify_cq(struct ibv_cq *cq, int solicited_only)
 {
@@ -3455,6 +3595,9 @@ ibv_modify_qp_rate_limit(struct ibv_qp *qp,
  * ibv_query_qp_data_in_order() return value is determined by flags.
  * For each capability bit, 1 is returned if the data is guaranteed to be
  * written in-order for selected operation and type, 0 otherwise.
+ *
+ *
+ * 检查硬件对于某个类操作的一个 WQE 里的数据是不是按照顺序写入内存的
  */
 int ibv_query_qp_data_in_order(struct ibv_qp *qp, enum ibv_wr_opcode op,
 			       uint32_t flags);

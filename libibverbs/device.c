@@ -253,6 +253,7 @@ int verbs_init_context(struct verbs_context *context_ex,
 	}
 
 	context_ex->priv->driver_id = driver_id;
+	// 真正的 callback 设置要看 provider 的, ref: mlx5_set_context()
 	verbs_set_ops(context_ex, &verbs_dummy_ops);
 	context_ex->priv->use_ioctl_write = has_ioctl_write(context);
 
@@ -370,6 +371,7 @@ LATEST_SYMVER_FUNC(ibv_open_device, 1_1, "IBVERBS_1.1",
 	return verbs_open_device(device, NULL);
 }
 
+// ref: verbs_device_ops
 struct ibv_context *ibv_import_device(int cmd_fd)
 {
 	struct verbs_device *verbs_device = NULL;
@@ -452,6 +454,7 @@ LATEST_SYMVER_FUNC(ibv_close_device, 1_1, "IBVERBS_1.1",
 	return 0;
 }
 
+// 从这里可以看出 async event 是 device 粒度的
 LATEST_SYMVER_FUNC(ibv_get_async_event, 1_1, "IBVERBS_1.1",
 		   int,
 		   struct ibv_context *context,

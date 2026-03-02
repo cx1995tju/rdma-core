@@ -69,6 +69,7 @@ static inline void load_drivers(void)
 void load_drivers(void);
 #endif
 
+// verbs_context.priv
 struct verbs_ex_private {
 	BMP_DECLARE(unsupported_ioctls, VERBS_OPS_NUM);
 	uint32_t driver_id;

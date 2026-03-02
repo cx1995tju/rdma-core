@@ -1,32 +1,4 @@
 /*
- * ibv_query_device
- * ibv_query_port
- * ibv_query_gid
- * ibv_query_pkey
- * ibv_get_pkey_index
- * ibv_alloc_pd
- * ibv_dealloc_pd
- * ibv_reg_mr
- * ibv_rereg_mr
- * ibv_dereg_mr
- * ibv_create_cq
- * ibv_resize_cq
- * ibv_destroy_cq
- * ibv_get_cq_event
- * ibv_ack_cq_events
- * ibv_create_srq
- * ibv_modify_srq
- * ibv_query_srq
- * ibv_destroy_srq
- * ibv_create_qp
- * ibv_query_qp
- * ibv_modify_qp
- * ibv_destroy_qp
- * ibv_create_ah
- * ibv_destroy_ah
- * ibv_attach_mcast
- * ibv_detach_mcast
- *
  * Copyright (c) 2005 Topspin Communications.  All rights reserved.
  * Copyright (c) 2006, 2007 Cisco Systems, Inc.  All rights reserved.
  * Copyright (c) 2020 Intel Corperation.  All rights reserved.
@@ -288,6 +260,7 @@ LATEST_SYMVER_FUNC(ibv_query_pkey, 1_1, "IBVERBS_1.1",
 	char attr[8];
 	uint16_t val;
 
+	// e.g.: /sys/devices/virtual/infiniband/rxe_0/
 	if (ibv_read_ibdev_sysfs_file(attr, sizeof(attr), verbs_device->sysfs,
 				      "ports/%d/pkeys/%d", port_num, index) < 0)
 		return -1;
@@ -337,6 +310,7 @@ LATEST_SYMVER_FUNC(ibv_dealloc_pd, 1_1, "IBVERBS_1.1",
 	return get_ops(pd->context)->dealloc_pd(pd);
 }
 
+// ref: ibv_access_flags
 struct ibv_mr *ibv_reg_mr_iova2(struct ibv_pd *pd, void *addr, size_t length,
 				uint64_t iova, unsigned int access)
 {
@@ -594,6 +568,7 @@ LATEST_SYMVER_FUNC(ibv_resize_cq, 1_1, "IBVERBS_1.1",
 	return get_ops(cq->context)->resize_cq(cq, cqe);
 }
 
+// 必须确保所有的 event 都被 ack 了, 才能 destroy_cq 的
 LATEST_SYMVER_FUNC(ibv_destroy_cq, 1_1, "IBVERBS_1.1",
 		   int,
 		   struct ibv_cq *cq)
@@ -723,6 +698,8 @@ LATEST_SYMVER_FUNC(ibv_query_qp, 1_1, "IBVERBS_1.1",
 	return 0;
 }
 
+
+/* 检查硬件对于某个类操作的一个 WQE 里的数据是不是按照顺序写入内存的 */
 int ibv_query_qp_data_in_order(struct ibv_qp *qp, enum ibv_wr_opcode op,
 			       uint32_t flags)
 {

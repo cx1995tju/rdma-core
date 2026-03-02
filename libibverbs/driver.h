@@ -266,6 +266,8 @@ struct verbs_sysfs_dev {
 };
 
 /* Must change the PRIVATE IBVERBS_PRIVATE_ symbol if this is changed */
+// ref: verbs_device, load driver 的时候就加载了这个. 最重要的就是 alloc_context 函数, ref comments in verbs.h
+// %mlx5_dev_ops
 struct verbs_device_ops {
 	const char *name;
 
@@ -276,9 +278,12 @@ struct verbs_device_ops {
 
 	bool (*match_device)(struct verbs_sysfs_dev *sysfs_dev);
 
+	// 最重要, ref: ibv_open_device()
 	struct verbs_context *(*alloc_context)(struct ibv_device *device,
 					       int cmd_fd,
 					       void *private_data);
+	// cmd_fd 已经存在的时候, 用这个来创建一个 context. 进程之间共享 uverbs fd(比如 fork 后)
+	// 这样在内核侧是共享一个 ucontext 的(?)
 	struct verbs_context *(*import_context)(struct ibv_device *device,
 						int cmd_fd);
 
@@ -292,7 +297,7 @@ struct verbs_device {
 	const struct verbs_device_ops *ops;
 	atomic_int refcount;
 	struct list_node entry;
-	struct verbs_sysfs_dev *sysfs;
+	struct verbs_sysfs_dev *sysfs; // %/sys/devices/virtual/infiniband/rxe_0/
 	uint64_t core_support;
 };
 
@@ -307,6 +312,10 @@ struct verbs_counters {
  * this structure then verbs_dummy_ops must also be updated.
  *
  * Keep sorted.
+ *
+ * ref: get_ops(), verbs_ex_private
+ *
+ * ref: mlx5_ctx_common_ops
  */
 struct verbs_context_ops {
 	int (*advise_mr)(struct ibv_pd *pd,

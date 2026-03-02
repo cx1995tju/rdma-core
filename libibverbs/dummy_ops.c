@@ -585,6 +585,18 @@ const struct verbs_context_ops verbs_dummy_ops = {
  * Set the ops in a context. If the function pointer in op is NULL then it is
  * not set. This allows the providers to call the function multiple times in
  * order to have variations of the ops for different HW configurations.
+ *
+ * provider 实现 verbs_context_ops 里的一堆 callback.
+ *
+ * 然后 verbs_set_ops 的时候将其中的 callback 分成两部分 copy 到:
+ * - verbs_context 结构里
+ * - verbs_context.priv.verbs_context_ops 里
+ *
+ * 另外为了兼容性, 还有一些 callback 会 copy 到, ibv_context_ops 里
+ *
+ * 另外注意: verbs_init_context() 里先将 ctx->priv->ops 初始化为
+ * verbs_dummy_ops, 也就是说如果 provider 没有实现某个 callback, 那么调用的时候
+ * 就会调用 verbs_dummy_ops 里对应的函数, 从而返回 EOPNOTSUPP 错误码.
  */
 void verbs_set_ops(struct verbs_context *vctx,
 		   const struct verbs_context_ops *ops)
@@ -597,6 +609,7 @@ void verbs_set_ops(struct verbs_context *vctx,
 	 * compatibility. If any ever get changed incompatibly they should be
 	 * set to NULL instead.
 	 */
+	// 存放到 verbs_ex_private 和 ibv_context_ops 里
 #define SET_PRIV_OP(ptr, name)                                                 \
 	do {                                                                   \
 		if (ops->name) {                                               \
@@ -606,6 +619,7 @@ void verbs_set_ops(struct verbs_context *vctx,
 	} while (0)
 
 	/* Same as SET_PRIV_OP but without the compatibility pointer */
+	// 仅仅存放到 verbs_ex_priate.verbs_context_ops 里
 #define SET_PRIV_OP_IC(ptr, name)                                              \
 	do {                                                                   \
 		if (ops->name)                                                 \
@@ -630,9 +644,9 @@ void verbs_set_ops(struct verbs_context *vctx,
 
 	SET_OP(vctx, advise_mr);
 	SET_OP(vctx, alloc_dm);
-	SET_OP(ctx, alloc_mw);
+	SET_OP(ctx, alloc_mw); // ctx 里的函数是从 vebrs_context_ops 里 copy 过来的
 	SET_OP(vctx, alloc_null_mr);
-	SET_PRIV_OP(ctx, alloc_pd);
+	SET_PRIV_OP(ctx, alloc_pd); // ctx 里的函数是从 vebrs_context_ops 里 copy 过来的
 	SET_OP(vctx, alloc_parent_domain);
 	SET_OP(vctx, alloc_td);
 	SET_OP(vctx, attach_counters_point_flow);
