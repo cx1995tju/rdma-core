@@ -545,9 +545,13 @@ struct ibv_odp_caps {
 	} per_transport_caps;
 };
 
+
 enum ibv_odp_general_caps {
 	IBV_ODP_SUPPORT = 1 << 0,
-	IBV_ODP_SUPPORT_IMPLICIT = 1 << 1,
+	IBV_ODP_SUPPORT_IMPLICIT = 1 << 1, // 整个 process memory space 都是
+					   // ODP, 后续创建 mr 的时候不需要特别
+					   // 指定 flags 了, 但是还是要设置
+					   // IBV_ACCESS_ON_DEMAND flag
 };
 
 struct ibv_tso_caps {
@@ -1292,7 +1296,7 @@ struct ibv_qp_init_attr_ex {
 	struct ibv_rx_hash_conf	rx_hash_conf;
 	uint32_t		source_qpn;
 	/* See enum ibv_qp_create_send_ops_flags */
-	uint64_t send_ops_flags;
+	uint64_t send_ops_flags; // 提前说明这个 sq 会用来做哪些操作
 };
 
 enum ibv_qp_open_attr_mask {
@@ -1830,6 +1834,7 @@ struct ibv_ece {
 
 // 和内核交互的一个通道
 // ref: ibv_destroy_cq(), 创建/销毁和 channel 相关的资源的时候, 注意更新 refcnt
+// 如果不是 poll mode, 而是希望内核通知事件, 那么就要创建一个 completion channel
 struct ibv_comp_channel {
 	struct ibv_context     *context;
 	int			fd;
@@ -2541,6 +2546,7 @@ struct verbs_context {
 	struct ibv_cq_ex *(*create_cq_ex)(struct ibv_context *context,
 					  struct ibv_cq_init_attr_ex *init_attr);
 	struct verbs_ex_private *priv;
+	// 如果要支持高级特性, 要实现这个函数
 	int (*query_device_ex)(struct ibv_context *context,
 			       const struct ibv_query_device_ex_input *input,
 			       struct ibv_device_attr_ex *attr,
@@ -3083,6 +3089,7 @@ int ibv_destroy_comp_channel(struct ibv_comp_channel *channel);
  * @flags - advice modifiers
  * @sg_list - an array of memory ranges
  * @num_sge - number of elements in the array
+ * // 告诉 HCA 这个 MR 我要做什么, 让 HCA 提前做一些准备, %IBV_ADVISE_MR_ADVICE_PREFETCH_WRITE
  */
 static inline int ibv_advise_mr(struct ibv_pd *pd,
 				enum ibv_advise_mr_advice advice,
@@ -3301,7 +3308,8 @@ static inline int ibv_poll_cq(struct ibv_cq *cq, int num_entries, struct ibv_wc 
  *   the next solicited CQ entry.  If zero, any CQ entry, solicited or
  *   not, will generate an event.
  *
- *   控制 cq 产生 notification 的条件.
+ *   控制 cq 产生 notification 的条件. 这个函数是 one-shot 的, notification 返
+ *   回后, 就失效了, 必须要重新设置.
  */
 static inline int ibv_req_notify_cq(struct ibv_cq *cq, int solicited_only)
 {
@@ -3514,6 +3522,7 @@ ibv_query_rt_values_ex(struct ibv_context *context,
 
 /**
  * ibv_query_device_ex - Get extended device properties
+ * 如果要支持高级特性, 要实现这个函数的
  */
 static inline int
 ibv_query_device_ex(struct ibv_context *context,

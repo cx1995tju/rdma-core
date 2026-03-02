@@ -1,4 +1,20 @@
-/*
+/* 
+ * server
+ * - pp_init_ctx
+ * - post_recv
+ * - exchange dest
+ * - poll cq
+ *
+ * client
+ * - pp_init_ctx
+ * - post_recv
+ * - exchange dest
+ * - connect server
+ * - post send
+ * - poll cq
+ *
+ *
+ *
  * Copyright (c) 2005 Topspin Communications.  All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -65,9 +81,9 @@ static int use_dm;
 static int use_new_send;
 
 struct pingpong_context {
-	struct ibv_context	*context;
-	struct ibv_comp_channel *channel;
-	struct ibv_pd		*pd;
+	struct ibv_context	*context; // acquire from ibv_open_device()
+	struct ibv_comp_channel *channel; // 如果不是 poll mode, 而是希望内核通知事件, 那么就要创建一个 completion channel
+	struct ibv_pd		*pd;      // 基本资源: pd, mr, cq, qp
 	struct ibv_mr		*mr;
 	struct ibv_dm		*dm;
 	union {
@@ -79,7 +95,7 @@ struct pingpong_context {
 	char			*buf;
 	int			 size;
 	int			 send_flags;
-	int			 rx_depth;
+	int			 rx_depth; // rq depth
 	int			 pending;
 	struct ibv_port_attr     portinfo;
 	uint64_t		 completion_timestamp_mask;
@@ -329,8 +345,10 @@ out:
 	return rem_dest;
 }
 
+// 需要的资源都创建好保存起来
+// qp 进入 INIT 状态
 static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
-					    int rx_depth, int port,
+					    int rx_depth, int port, /* ib port */
 					    int use_event)
 {
 	struct pingpong_context *ctx;
@@ -375,7 +393,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		goto clean_comp_channel;
 	}
 
-	if (use_odp || use_ts || use_dm) {
+	if (use_odp || use_ts || use_dm) { // 需要使用高级特性
 		const uint32_t rc_caps_mask = IBV_ODP_SUPPORT_SEND |
 					      IBV_ODP_SUPPORT_RECV;
 		struct ibv_device_attr_ex attrx;
@@ -399,7 +417,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 			access_flags |= IBV_ACCESS_ON_DEMAND;
 		}
 
-		if (use_ts) {
+		if (use_ts) { // cq 携带 timestamp 后用这个 mask 一下
 			if (!attrx.completion_timestamp_mask) {
 				fprintf(stderr, "The device isn't completion timestamp capable\n");
 				goto clean_pd;
@@ -431,7 +449,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		}
 	}
 
-	if (implicit_odp) {
+	if (implicit_odp) { /* 为什么这里是 addr=0, size=SIZE_MAX ? ref: man ibv_reg_mr */
 		ctx->mr = ibv_reg_mr(ctx->pd, NULL, SIZE_MAX, access_flags);
 	} else {
 		ctx->mr = use_dm ? ibv_reg_dm_mr(ctx->pd, ctx->dm, 0,
@@ -452,6 +470,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		sg_list.addr = (uintptr_t)ctx->buf;
 		sg_list.length = size;
 
+		// 让 hca 把 mr 提前准备好, 接下来我会做 write 操作的, FLUSH 让其立即处理这个请求
 		ret = ibv_advise_mr(ctx->pd, IBV_ADVISE_MR_ADVICE_PREFETCH_WRITE,
 				    IB_UVERBS_ADVISE_MR_FLAG_FLUSH,
 				    &sg_list, 1);
@@ -460,9 +479,12 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 			fprintf(stderr, "Couldn't prefetch MR(%d). Continue anyway\n", ret);
 	}
 
-	if (use_ts) {
+	if (use_ts) { // 高级特性, 用 extension 接口
 		struct ibv_cq_init_attr_ex attr_ex = {
-			.cqe = rx_depth + 1,
+			.cqe = rx_depth + 1,	/* cq 同时用于 sq/rq, 本测试中
+						   某个事件 oustanding
+						   post_send 只有一个 wr, 所以
+						   其深度是 rx_depth + 1*/
 			.cq_context = NULL,
 			.channel = ctx->channel,
 			.comp_vector = 0,
@@ -480,6 +502,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 		goto clean_mr;
 	}
 
+	// 创建 qp 了
 	{
 		struct ibv_qp_attr attr;
 		struct ibv_qp_init_attr init_attr = {
@@ -494,7 +517,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 			.qp_type = IBV_QPT_RC
 		};
 
-		if (use_new_send) {
+		if (use_new_send) { // 用新的 work request api: ref: ibv_wr_start()
 			struct ibv_qp_init_attr_ex init_attr_ex = {};
 
 			init_attr_ex.send_cq = pp_cq(ctx);
@@ -524,6 +547,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 			ctx->qpx = ibv_qp_to_qp_ex(ctx->qp);
 
 		ibv_query_qp(ctx->qp, &attr, IBV_QP_CAP, &init_attr);
+		// 能 inline 就 inline, inline 和 dm 是冲突的, inline 是数据放到 wqe 里, dm 则要求数据放到 device  memory 里
 		if (init_attr.cap.max_inline_data >= size && !use_dm)
 			ctx->send_flags |= IBV_SEND_INLINE;
 	}
@@ -536,6 +560,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 			.qp_access_flags = 0
 		};
 
+		// 改成 INIT 状态
 		if (ibv_modify_qp(ctx->qp, &attr,
 				  IBV_QP_STATE              |
 				  IBV_QP_PKEY_INDEX         |
@@ -635,7 +660,7 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
 		.lkey	= ctx->mr->lkey
 	};
 	struct ibv_recv_wr wr = {
-		.wr_id	    = PINGPONG_RECV_WRID,
+		.wr_id	    = PINGPONG_RECV_WRID, // 只是对用户有意义, 如果你不在乎的话, 当然可以一样了
 		.sg_list    = &list,
 		.num_sge    = 1,
 	};
@@ -728,7 +753,7 @@ static inline int parse_single_wc(struct pingpong_context *ctx, int *scnt,
 					delta = completion_timestamp - ts->comp_recv_prev_time;
 				else
 					delta = ctx->completion_timestamp_mask - ts->comp_recv_prev_time +
-						completion_timestamp + 1;
+						completion_timestamp + 1;	// 回绕了
 
 				ts->comp_recv_max_time_delta = max(ts->comp_recv_max_time_delta, delta);
 				ts->comp_recv_min_time_delta = min(ts->comp_recv_min_time_delta, delta);
@@ -763,6 +788,19 @@ static inline int parse_single_wc(struct pingpong_context *ctx, int *scnt,
 	return 0;
 }
 
+/* 关注下述参数 */
+/*   -p, --port=<port>      listen on/connect to port <port> (default 18515) */
+/*   -d, --ib-dev=<dev>     use IB device <dev> (default first device found) */
+/*   -i, --ib-port=<port>   use port <port> of IB device (default 1) */
+/*   -l, --sl=<sl>          service level value */
+/*   -e, --events           sleep on CQ events (default poll) */
+/*   -o, --odp              use on demand paging */
+/*   -O, --iodp             use implicit on demand paging */
+/*   -P, --prefetch         prefetch an ODP MR */
+/*   -t, --ts               get CQE with timestamp */
+/*   -c, --chk              validate received buffer */
+/*   -j, --dm               use device memory */
+/*   -N, --new_send         use new post send WR API */
 static void usage(const char *argv0)
 {
 	printf("Usage:\n");
@@ -958,6 +996,7 @@ int main(int argc, char *argv[])
 
 	page_size = sysconf(_SC_PAGESIZE);
 
+	// rdma verbs 编程第一步, 获取设备列表咯
 	dev_list = ibv_get_device_list(NULL);
 	if (!dev_list) {
 		perror("Failed to get IB devices list");
@@ -993,6 +1032,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (use_event)
+		// 让 cq 每个 CQE 都产生 notification
 		if (ibv_req_notify_cq(pp_cq(ctx), 0)) {
 			fprintf(stderr, "Couldn't request CQ notification\n");
 			return 1;
@@ -1005,6 +1045,7 @@ int main(int argc, char *argv[])
 	}
 
 	my_dest.lid = ctx->portinfo.lid;
+	// 如果不是 ethernet, 而是 native ib, 那么需要 lid
 	if (ctx->portinfo.link_layer != IBV_LINK_LAYER_ETHERNET &&
 							!my_dest.lid) {
 		fprintf(stderr, "Couldn't get local LID\n");
