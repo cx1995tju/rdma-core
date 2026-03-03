@@ -1,4 +1,14 @@
-/*
+/* rxe_dev_ops / rxe_alloc_context / rxe_ctx_ops
+ *
+ * 关于 rxe_ctx_ops 的实现:
+ * - 控制面基本就是通过  ioctl 和 uverbsX 交互
+ * - 数据面需要的,  则是通过 mmap(uverbsX fd) 映射过来的. 都是先给一条命令到内
+ *   核, 然后内核返回 mmap 的 size 和 offset 信息, 接下来用这个信息去 mmap, 涉
+ *   及到 mmap 的 verbs, 另外注意涉及到 mmap 的资源在销毁的时候注意要 munmap
+ *   - cq: rxe_create_cq / rxe_create_cq_ex / rxe_resize_cq
+ *   - srq: rxe_create_srq / rxe_create_srq_ex / rxe_modify_srq
+ *   - qp: map_queue_pair
+ *
  * Copyright (c) 2009 Mellanox Technologies Ltd. All rights reserved.
  * Copyright (c) 2009 System Fabric Works, Inc. All rights reserved.
  * Copyright (C) 2006-2007 QLogic Corporation, All rights reserved.
@@ -65,6 +75,7 @@ static const struct verbs_match_ent hca_table[] = {
 	{},
 };
 
+// 简单的去内核拿一些信息
 static int rxe_query_device(struct ibv_context *context,
 			    const struct ibv_query_device_ex_input *input,
 			    struct ibv_device_attr_ex *attr, size_t attr_size)
@@ -91,6 +102,7 @@ static int rxe_query_device(struct ibv_context *context,
 	return 0;
 }
 
+// 简单的去内核拿一些信息
 static int rxe_query_port(struct ibv_context *context, uint8_t port,
 			  struct ibv_port_attr *attr)
 {
@@ -99,6 +111,7 @@ static int rxe_query_port(struct ibv_context *context, uint8_t port,
 	return ibv_cmd_query_port(context, port, attr, &cmd, sizeof(cmd));
 }
 
+// 简单的和内核的交互
 static struct ibv_pd *rxe_alloc_pd(struct ibv_context *context)
 {
 	struct ibv_alloc_pd cmd;
@@ -118,6 +131,7 @@ static struct ibv_pd *rxe_alloc_pd(struct ibv_context *context)
 	return pd;
 }
 
+// 简单的和内核的交互
 static int rxe_dealloc_pd(struct ibv_pd *pd)
 {
 	int ret;
@@ -129,6 +143,7 @@ static int rxe_dealloc_pd(struct ibv_pd *pd)
 	return ret;
 }
 
+// 简单的和内核的交互
 static struct ibv_mw *rxe_alloc_mw(struct ibv_pd *ibpd, enum ibv_mw_type type)
 {
 	int ret;
@@ -150,6 +165,7 @@ static struct ibv_mw *rxe_alloc_mw(struct ibv_pd *ibpd, enum ibv_mw_type type)
 	return ibmw;
 }
 
+// 简单的和内核的交互
 static int rxe_dealloc_mw(struct ibv_mw *ibmw)
 {
 	int ret;
@@ -165,6 +181,7 @@ static int rxe_dealloc_mw(struct ibv_mw *ibmw)
 static int rxe_post_send(struct ibv_qp *ibqp, struct ibv_send_wr *wr_list,
 			 struct ibv_send_wr **bad_wr);
 
+// bind mw 的操作是通过 qp 上的 post send 进行的
 static int rxe_bind_mw(struct ibv_qp *ibqp, struct ibv_mw *ibmw,
 		       struct ibv_mw_bind *mw_bind)
 {
@@ -173,6 +190,7 @@ static int rxe_bind_mw(struct ibv_qp *ibqp, struct ibv_mw *ibmw,
 	struct ibv_send_wr ibwr;
 	struct ibv_send_wr *bad_wr;
 
+	// 不支持 ZBVA 的 MW (???)
 	if (bind_info->mw_access_flags & IBV_ACCESS_ZERO_BASED) {
 		ret = EINVAL;
 		goto err;
@@ -201,6 +219,7 @@ err:
 	return errno;
 }
 
+// 简单的和内核的交互
 static struct ibv_mr *rxe_reg_mr(struct ibv_pd *pd, void *addr, size_t length,
 				 uint64_t hca_va, int access)
 {
@@ -223,6 +242,7 @@ static struct ibv_mr *rxe_reg_mr(struct ibv_pd *pd, void *addr, size_t length,
 	return &vmr->ibv_mr;
 }
 
+// 简单的和内核的交互
 static int rxe_dereg_mr(struct verbs_mr *vmr)
 {
 	int ret;
@@ -235,6 +255,7 @@ static int rxe_dereg_mr(struct verbs_mr *vmr)
 	return 0;
 }
 
+// 初始化 cq 中一些用来 poll 的状态, poll 迭代器
 static int cq_start_poll(struct ibv_cq_ex *current,
 			 struct ibv_poll_cq_attr *attr)
 {
@@ -257,6 +278,7 @@ static int cq_start_poll(struct ibv_cq_ex *current,
 	return 0;
 }
 
+// 更新 cq poll 迭代器
 static int cq_next_poll(struct ibv_cq_ex *current)
 {
 	struct rxe_cq *cq = container_of(current, struct rxe_cq, vcq.cq_ex);
@@ -286,6 +308,7 @@ static void cq_end_poll(struct ibv_cq_ex *current)
 	pthread_spin_unlock(&cq->lock);
 }
 
+// 一些 helper 咯
 static enum ibv_wc_opcode cq_read_opcode(struct ibv_cq_ex *current)
 {
 	struct rxe_cq *cq = container_of(current, struct rxe_cq, vcq.cq_ex);
@@ -358,6 +381,11 @@ static uint8_t cq_read_dlid_path_bits(struct ibv_cq_ex *current)
 
 static int rxe_destroy_cq(struct ibv_cq *ibcq);
 
+/* cq 是数据面需要 poll 的内容, 所以要 mmap
+ *
+ * 首先还是 create cq 的命令给到内核 拿到需要 mmap 的信息(size, offset), 然后再
+ * 来 mmap
+ * */
 static struct ibv_cq *rxe_create_cq(struct ibv_context *context, int cqe,
 				    struct ibv_comp_channel *channel,
 				    int comp_vector)
@@ -1871,6 +1899,7 @@ static struct verbs_context *rxe_alloc_context(struct ibv_device *ibdev,
 				&resp, sizeof(resp)))
 		goto out;
 
+	// XXX: 核心
 	verbs_set_ops(&context->ibv_ctx, &rxe_ctx_ops);
 
 	return &context->ibv_ctx;

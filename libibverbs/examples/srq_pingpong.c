@@ -441,6 +441,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 
 	for (i = 0; i < num_qp; ++i) {
 		struct ibv_qp_attr attr;
+		// 这里是关键, 添加了一个 srq
 		struct ibv_qp_init_attr init_attr = {
 			.send_cq = ctx->cq,
 			.recv_cq = ctx->cq,
@@ -581,6 +582,7 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
 	struct ibv_recv_wr *bad_wr;
 	int i;
 
+	// 不是向 rq post 了, 而是 srq
 	for (i = 0; i < n; ++i)
 		if (ibv_post_srq_recv(ctx->srq, &wr, &bad_wr))
 			break;
@@ -790,6 +792,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	// n 个 sq 的 wc + 1 个 srq 深度个 wc
 	num_wc = num_qp + rx_depth;
 	wc     = alloca(num_wc * sizeof *wc);
 

@@ -55,7 +55,7 @@ struct rxe_context {
 struct rxe_cq {
 	struct verbs_cq		vcq;
 	struct mminfo		mmap_info;
-	struct rxe_queue_buf	*queue;
+	struct rxe_queue_buf	*queue; // ref: rxe_create_cq,  mmap(uverbsX) 获得的
 	pthread_spinlock_t	lock;
 
 	/* new API support */

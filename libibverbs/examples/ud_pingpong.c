@@ -376,7 +376,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 				.max_send_sge = 1,
 				.max_recv_sge = 1
 			},
-			.qp_type = IBV_QPT_UD,
+			.qp_type = IBV_QPT_UD,	// XXX: UD
 		};
 
 		ctx->qp = ibv_create_qp(ctx->pd, &init_attr);
@@ -396,7 +396,7 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 			.qp_state        = IBV_QPS_INIT,
 			.pkey_index      = 0,
 			.port_num        = port,
-			.qkey            = 0x11111111
+			.qkey            = 0x11111111	// ud 是需要 qkey 的
 		};
 
 		if (ibv_modify_qp(ctx->qp, &attr,
@@ -523,7 +523,7 @@ static int pp_post_send(struct pingpong_context *ctx, uint32_t qpn)
 			.ud = {
 				 .ah          = ctx->ah,
 				 .remote_qpn  = qpn,
-				 .remote_qkey = 0x11111111
+				 .remote_qkey = 0x11111111	// XXX: 这是关键,  post_send 的时候需要 q_key
 			 }
 		}
 	};

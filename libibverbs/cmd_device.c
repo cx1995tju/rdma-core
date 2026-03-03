@@ -126,6 +126,7 @@ int ibv_cmd_alloc_async_fd(struct ibv_context *context)
 	return 0;
 }
 
+// get some info from kernel
 static int cmd_get_context(struct verbs_context *context_ex,
 				struct ibv_command_buffer *link)
 {

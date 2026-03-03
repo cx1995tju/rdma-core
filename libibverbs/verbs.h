@@ -903,7 +903,7 @@ struct ibv_wc {
 		__be32		imm_data;
 		uint32_t	invalidated_rkey;
 	};
-	uint32_t		qp_num;
+	uint32_t		qp_num;	// 一个 cq 可能用于多个 qp, 这个当然关键
 	uint32_t		src_qp;
 	unsigned int		wc_flags;
 	uint16_t		pkey_index;

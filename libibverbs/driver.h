@@ -246,6 +246,7 @@ enum {
 };
 
 /* An rdma device detected in sysfs */
+// ref: find_sysfs_devs_nl_cb
 struct verbs_sysfs_dev {
 	struct list_node entry;
 	void *provider_data;

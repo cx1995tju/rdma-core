@@ -1,3 +1,10 @@
+/* erdma_alloc_qp_buf_and_db
+ *
+ * 关于数据面 userspace 地址的分配: softroce 是通过 mmap 设备文件来分配的，用户
+ * 态直接访问这个地址来进行数据面操作, erdma 则是在用户态先分配, 然后通过命令将
+ * 分配的信息给到内核.
+ * */ 
+//
 // SPDX-License-Identifier: GPL-2.0 or BSD-3-Clause
 
 // Authors: Cheng Xu <chengyou@linux.alibaba.com>
@@ -22,6 +29,7 @@
 #include "erdma_hw.h"
 #include "erdma_verbs.h"
 
+// 和内核的简单交互
 int erdma_query_device(struct ibv_context *ctx,
 		       const struct ibv_query_device_ex_input *input,
 		       struct ibv_device_attr_ex *attr, size_t attr_size)
@@ -48,6 +56,7 @@ int erdma_query_device(struct ibv_context *ctx,
 	return 0;
 }
 
+// 和内核的简单交互
 int erdma_query_port(struct ibv_context *ctx, uint8_t port,
 		     struct ibv_port_attr *attr)
 {
@@ -56,6 +65,7 @@ int erdma_query_port(struct ibv_context *ctx, uint8_t port,
 	return ibv_cmd_query_port(ctx, port, attr, &cmd, sizeof(cmd));
 }
 
+// 和内核的简单交互
 int erdma_query_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask,
 		   struct ibv_qp_init_attr *init_attr)
 {
@@ -178,6 +188,7 @@ struct ibv_cq *erdma_create_cq(struct ibv_context *ctx, int num_cqe,
 	num_cqe = roundup_pow_of_two(num_cqe);
 	cq_size = align(num_cqe * sizeof(struct erdma_cqe), ERDMA_PAGE_SIZE);
 
+	// XXX: 先 userspace 分配, 然后通过命令把地址给内核
 	rv = posix_memalign((void **)&cq->queue, ERDMA_PAGE_SIZE, cq_size);
 	if (rv) {
 		errno = rv;
@@ -340,6 +351,7 @@ static void erdma_clear_qp(struct erdma_context *ctx, struct erdma_qp *qp)
 	pthread_mutex_unlock(&ctx->qp_table_mutex);
 }
 
+// XXX: 关键
 static int erdma_alloc_qp_buf_and_db(struct erdma_context *ctx,
 				     struct erdma_qp *qp,
 				     struct ibv_qp_init_attr *attr)
@@ -354,6 +366,7 @@ static int erdma_alloc_qp_buf_and_db(struct erdma_context *ctx,
 	queue_size += align(nwqebb << RQE_SHIFT, ctx->page_size);
 
 	qp->qbuf_size = queue_size;
+	// XXX: 分配 buffer
 	rv = posix_memalign(&qp->qbuf, ctx->page_size, queue_size);
 	if (rv) {
 		errno = ENOMEM;
@@ -367,6 +380,7 @@ static int erdma_alloc_qp_buf_and_db(struct erdma_context *ctx,
 	}
 
 	/* doorbell record allocation. */
+	// 分配 doorbell buf
 	qp->db_records = erdma_alloc_dbrecords(ctx);
 	if (!qp->db_records) {
 		errno = ENOMEM;
@@ -451,6 +465,7 @@ struct ibv_qp *erdma_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *attr)
 	if (rv)
 		goto err_cmd;
 
+	// 用户态先直接分配 va, 然后通过命令把地址信息告诉内核, 内核再把这个地址映射到数据面, 用户态直接访问这个地址进行数据面操作
 	qp->id = resp.qp_id;
 	qp->sq.qbuf = qp->qbuf;
 	qp->rq.qbuf = qp->qbuf + resp.rq_offset;
@@ -463,10 +478,12 @@ struct ibv_qp *erdma_create_qp(struct ibv_pd *pd, struct ibv_qp_init_attr *attr)
 	/* doorbell allocation. */
 	__erdma_alloc_dbs(qp, ctx);
 
+	// 为 qp 分配 wr id table
 	rv = erdma_alloc_wrid_tbl(qp);
 	if (rv)
 		goto err_wrid_tbl;
 
+	// 保存 qp 信息
 	rv = erdma_store_qp(ctx, qp);
 	if (rv) {
 		errno = -rv;

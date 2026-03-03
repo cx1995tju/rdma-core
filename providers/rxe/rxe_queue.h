@@ -171,6 +171,7 @@ static inline unsigned int index_from_addr(const struct rxe_queue_buf *q,
 		q->index_mask;
 }
 
+// ref: cq_next_poll
 static inline void advance_cq_cur_index(struct rxe_cq *cq)
 {
 	struct rxe_queue_buf *q = cq->queue;

@@ -336,6 +336,7 @@ struct ibv_context *verbs_open_device(struct ibv_device *device, void *private_d
 		 * We'll only be doing writes, but we need O_RDWR in case the
 		 * provider needs to mmap() the file.
 		 */
+		// open uverbsX
 		cmd_fd = open_cdev(verbs_device->sysfs->sysfs_name,
 				   verbs_device->sysfs->sysfs_cdev);
 		if (cmd_fd < 0)

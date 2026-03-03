@@ -114,6 +114,10 @@ struct pingpong_dest {
 	union ibv_gid gid;
 };
 
+// 就是 client 端进一步设置 QP 状态和信息
+// psn, mtu, sl, ...
+//
+// QP 状态机向前推进到 IBV_QPS_RTS
 static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
 			  enum ibv_mtu mtu, int sl,
 			  struct pingpong_dest *dest, int sgid_idx)
@@ -605,6 +609,7 @@ clean_ctx:
 	return NULL;
 }
 
+// 释放各种资源
 static int pp_close_ctx(struct pingpong_context *ctx)
 {
 	if (ibv_destroy_qp(ctx->qp)) {
@@ -714,6 +719,7 @@ struct ts_params {
 	unsigned int		 comp_with_time_iters;
 };
 
+// 解析 poll 出来的 wc
 static inline int parse_single_wc(struct pingpong_context *ctx, int *scnt,
 				  int *rcnt, int *routs, int iters,
 				  uint64_t wr_id, enum ibv_wc_status status,
@@ -1044,6 +1050,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+
 	my_dest.lid = ctx->portinfo.lid;
 	// 如果不是 ethernet, 而是 native ib, 那么需要 lid
 	if (ctx->portinfo.link_layer != IBV_LINK_LAYER_ETHERNET &&
@@ -1067,6 +1074,7 @@ int main(int argc, char *argv[])
 	       my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
 
+	/* XXX: 带外 tcp 通道交互 dest 信息: lid, qpn, psn, gid */
 	if (servername)
 		rem_dest = pp_client_exch_dest(servername, port, &my_dest);
 	else
@@ -1080,14 +1088,14 @@ int main(int argc, char *argv[])
 	printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
 	       rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
 
-	if (servername)
+	if (servername) // client 进一步设置 QP 状态
 		if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest,
 					gidx))
 			return 1;
 
 	ctx->pending = PINGPONG_RECV_WRID;
 
-	if (servername) {
+	if (servername) { // client 端 post send
 		if (validate_buf)
 			for (int i = 0; i < size; i += page_size)
 				ctx->buf[i] = i / page_size % sizeof(char);
@@ -1238,6 +1246,7 @@ int main(int argc, char *argv[])
 	if (pp_close_ctx(ctx))
 		return 1;
 
+	// free device list 咯
 	ibv_free_device_list(dev_list);
 	free(rem_dest);
 

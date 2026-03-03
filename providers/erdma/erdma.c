@@ -1,3 +1,9 @@
+/* erdma_alloc_context
+ *
+ * erdma_context_ops
+ *
+ *
+ * */
 // SPDX-License-Identifier: GPL-2.0 or OpenIB.org BSD (MIT) See COPYING file
 
 // Authors: Cheng Xu <chengyou@linux.alibaba.com>
@@ -17,6 +23,7 @@
 #include "erdma_hw.h"
 #include "erdma_verbs.h"
 
+/* 这里可以看到其不支持 mw 的 */
 static const struct verbs_context_ops erdma_context_ops = {
 	.alloc_pd = erdma_alloc_pd,
 	.cq_event = erdma_cq_event,
@@ -59,6 +66,7 @@ static struct verbs_context *erdma_alloc_context(struct ibv_device *device,
 				&resp.ibv_resp, sizeof(resp)))
 		goto err_out;
 
+	/* XXX: erdma_context_ops */
 	verbs_set_ops(&ctx->ibv_ctx, &erdma_context_ops);
 	ctx->dev_id = resp.dev_id;
 

@@ -42,7 +42,8 @@ struct erdma_context {
 	uint8_t sdb_type;
 	uint32_t sdb_offset;
 
-	void *sdb;
+	/* ref: erdma_alloc_context, 从内核 mmap 来的 */
+	void *sdb; // send door bell ?
 	void *rdb;
 	void *cdb;
 
